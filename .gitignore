@@ -1,0 +1,14 @@
+# Python virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Generated files
+api_test_case.healed.yaml
+heal_report.md
+pr_description.md
+
+# OS files
+.DS_Store

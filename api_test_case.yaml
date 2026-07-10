@@ -1,0 +1,7 @@
+﻿name: Create User - Success
+method: POST
+url: http://localhost:3000/users
+expected_status: 201
+body:
+  name: Test User
+  userEmail: qa_user@example.com
