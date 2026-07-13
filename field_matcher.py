@@ -469,3 +469,226 @@ def analyze_openapi_compatibility(
         format_compatible=format_compatible,
         reasons=tuple(reasons),
     )
+
+
+# ---------------------------------------------------------------------------
+# Deterministic match scoring and final safety decision
+# ---------------------------------------------------------------------------
+
+from difflib import SequenceMatcher
+
+
+SAFE_MATCH_THRESHOLD = 0.70
+
+EXACT_NORMALIZED_MATCH_WEIGHT = 0.55
+SHARED_SEMANTIC_CONCEPT_WEIGHT = 0.40
+TYPE_COMPATIBILITY_WEIGHT = 0.15
+FORMAT_COMPATIBILITY_WEIGHT = 0.20
+STRING_SIMILARITY_WEIGHT = 0.05
+
+
+@dataclass(frozen=True)
+class FieldMatchDecision:
+    """Final explainable decision for one source-target field pair."""
+
+    source_field: str
+    target_field: str
+    score: float
+    threshold: float
+    confidence: str
+    safe_to_patch: bool
+    normalized_exact_match: bool
+    string_similarity: float
+    semantic_analysis: SemanticMatchAnalysis
+    compatibility_analysis: TypeFormatAnalysis
+    reasons: tuple[str, ...]
+
+
+def calculate_string_similarity(
+    source_field: str,
+    target_field: str,
+) -> float:
+    """
+    Calculate conservative text similarity between normalized fields.
+
+    String similarity is intentionally a weak signal. It may support
+    stronger evidence, but it must never approve a patch by itself.
+    """
+    source_text = normalized_field_text(source_field)
+    target_text = normalized_field_text(target_field)
+
+    if not source_text or not target_text:
+        return 0.0
+
+    return SequenceMatcher(
+        None,
+        source_text,
+        target_text,
+    ).ratio()
+
+
+def evaluate_field_match(
+    source_field: str,
+    target_field: str,
+    source_value: Any,
+    target_schema: dict[str, Any],
+    threshold: float = SAFE_MATCH_THRESHOLD,
+) -> FieldMatchDecision:
+    """
+    Produce a deterministic SAFE/REJECT decision for a field rename.
+
+    Safety rules:
+    - qualifier conflicts always reject
+    - OpenAPI type or format conflicts always reject
+    - string similarity cannot approve a match alone
+    - a strong field-name anchor is required
+    - final score must meet the configured threshold
+
+    Strong anchors:
+    - normalized field names are exactly equal, or
+    - fields share a semantic concept and value format matches OpenAPI
+    """
+    if not 0.0 <= threshold <= 1.0:
+        raise ValueError("threshold must be between 0.0 and 1.0")
+
+    semantic_analysis = analyze_semantic_match(
+        source_field,
+        target_field,
+    )
+
+    compatibility_analysis = analyze_openapi_compatibility(
+        source_value,
+        target_schema,
+    )
+
+    source_tokens = semantic_analysis.source_tokens
+    target_tokens = semantic_analysis.target_tokens
+
+    normalized_exact_match = (
+        bool(source_tokens)
+        and source_tokens == target_tokens
+    )
+
+    string_similarity = calculate_string_similarity(
+        source_field,
+        target_field,
+    )
+
+    raw_score = 0.0
+    reasons: list[str] = []
+
+    if normalized_exact_match:
+        raw_score += EXACT_NORMALIZED_MATCH_WEIGHT
+        reasons.append(
+            "Normalized field tokens match exactly"
+        )
+    else:
+        reasons.append(
+            "Normalized field tokens do not match exactly"
+        )
+
+    if semantic_analysis.shared_concepts:
+        raw_score += SHARED_SEMANTIC_CONCEPT_WEIGHT
+        shared = ", ".join(
+            semantic_analysis.shared_concepts
+        )
+        reasons.append(
+            f"Shared semantic concept: {shared}"
+        )
+    else:
+        reasons.append(
+            "No shared semantic concept was found"
+        )
+
+    if compatibility_analysis.type_compatible is True:
+        raw_score += TYPE_COMPATIBILITY_WEIGHT
+
+    if compatibility_analysis.format_compatible is True:
+        raw_score += FORMAT_COMPATIBILITY_WEIGHT
+
+    similarity_contribution = (
+        string_similarity * STRING_SIMILARITY_WEIGHT
+    )
+    raw_score += similarity_contribution
+
+    reasons.extend(compatibility_analysis.reasons)
+
+    reasons.append(
+        "Normalized string similarity: "
+        f"{string_similarity:.3f}"
+    )
+
+    if semantic_analysis.qualifier_conflicts:
+        reasons.extend(
+            "Qualifier conflict: " + conflict
+            for conflict in semantic_analysis.qualifier_conflicts
+        )
+
+    has_semantic_format_anchor = (
+        bool(semantic_analysis.shared_concepts)
+        and compatibility_analysis.format_compatible is True
+    )
+
+    has_strong_anchor = (
+        normalized_exact_match
+        or has_semantic_format_anchor
+    )
+
+    if not has_strong_anchor:
+        reasons.append(
+            "No strong matching anchor was found"
+        )
+
+    score = min(1.0, round(raw_score, 3))
+
+    has_hard_conflict = (
+        bool(semantic_analysis.qualifier_conflicts)
+        or compatibility_analysis.has_conflict
+    )
+
+    safe_to_patch = (
+        not has_hard_conflict
+        and has_strong_anchor
+        and score >= threshold
+    )
+
+    if safe_to_patch and score >= 0.75:
+        confidence = "High"
+    elif safe_to_patch:
+        confidence = "Medium"
+    else:
+        confidence = "Low"
+
+    if score < threshold:
+        reasons.append(
+            f"Score {score:.3f} is below "
+            f"safety threshold {threshold:.3f}"
+        )
+
+    if has_hard_conflict:
+        reasons.append(
+            "Hard safety conflict detected"
+        )
+
+    if safe_to_patch:
+        reasons.append(
+            "Decision: SAFE PATCH"
+        )
+    else:
+        reasons.append(
+            "Decision: REJECT"
+        )
+
+    return FieldMatchDecision(
+        source_field=source_field,
+        target_field=target_field,
+        score=score,
+        threshold=threshold,
+        confidence=confidence,
+        safe_to_patch=safe_to_patch,
+        normalized_exact_match=normalized_exact_match,
+        string_similarity=round(string_similarity, 3),
+        semantic_analysis=semantic_analysis,
+        compatibility_analysis=compatibility_analysis,
+        reasons=tuple(reasons),
+    )

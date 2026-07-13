@@ -312,3 +312,146 @@ class OpenApiCompatibilityTests(unittest.TestCase):
         self.assertIsNone(result.type_compatible)
         self.assertIsNone(result.format_compatible)
         self.assertFalse(result.has_conflict)
+
+
+class FieldMatchDecisionTests(unittest.TestCase):
+    def test_user_email_to_email_address_is_safe(self) -> None:
+        from field_matcher import evaluate_field_match
+
+        result = evaluate_field_match(
+            source_field="userEmail",
+            target_field="email_address",
+            source_value="qa_user@example.com",
+            target_schema={
+                "type": "string",
+                "format": "email",
+            },
+        )
+
+        self.assertTrue(result.safe_to_patch)
+        self.assertGreaterEqual(result.score, 0.70)
+        self.assertEqual(result.confidence, "High")
+        self.assertIn(
+            "email",
+            result.semantic_analysis.shared_concepts,
+        )
+
+    def test_phone_camel_case_to_snake_case_is_safe(self) -> None:
+        from field_matcher import evaluate_field_match
+
+        result = evaluate_field_match(
+            source_field="phoneNumber",
+            target_field="phone_number",
+            source_value="+90 555 123 45 67",
+            target_schema={
+                "type": "string",
+            },
+        )
+
+        self.assertTrue(result.normalized_exact_match)
+        self.assertTrue(result.safe_to_patch)
+        self.assertEqual(result.confidence, "High")
+
+    def test_unknown_exact_normalized_rename_is_safe(self) -> None:
+        from field_matcher import evaluate_field_match
+
+        result = evaluate_field_match(
+            source_field="legacyCode",
+            target_field="legacy_code",
+            source_value="ABC-123",
+            target_schema={
+                "type": "string",
+            },
+        )
+
+        self.assertTrue(result.normalized_exact_match)
+        self.assertTrue(result.safe_to_patch)
+
+    def test_name_to_email_address_is_rejected(self) -> None:
+        from field_matcher import evaluate_field_match
+
+        result = evaluate_field_match(
+            source_field="name",
+            target_field="email_address",
+            source_value="Test User",
+            target_schema={
+                "type": "string",
+                "format": "email",
+            },
+        )
+
+        self.assertFalse(result.safe_to_patch)
+        self.assertEqual(result.confidence, "Low")
+        self.assertTrue(
+            result.compatibility_analysis.has_conflict
+        )
+
+    def test_first_name_to_last_name_is_rejected(self) -> None:
+        from field_matcher import evaluate_field_match
+
+        result = evaluate_field_match(
+            source_field="firstName",
+            target_field="last_name",
+            source_value="Burak",
+            target_schema={
+                "type": "string",
+            },
+        )
+
+        self.assertFalse(result.safe_to_patch)
+        self.assertTrue(
+            result.semantic_analysis.qualifier_conflicts
+        )
+
+    def test_user_id_to_customer_id_is_rejected(self) -> None:
+        from field_matcher import evaluate_field_match
+
+        result = evaluate_field_match(
+            source_field="userId",
+            target_field="customer_id",
+            source_value="user-123",
+            target_schema={
+                "type": "string",
+            },
+        )
+
+        self.assertFalse(result.safe_to_patch)
+        self.assertFalse(result.normalized_exact_match)
+
+    def test_type_conflict_rejects_even_strong_name_match(self) -> None:
+        from field_matcher import evaluate_field_match
+
+        result = evaluate_field_match(
+            source_field="userId",
+            target_field="user_id",
+            source_value="not-an-integer",
+            target_schema={
+                "type": "integer",
+            },
+        )
+
+        self.assertTrue(result.normalized_exact_match)
+        self.assertFalse(result.safe_to_patch)
+        self.assertTrue(
+            result.compatibility_analysis.has_conflict
+        )
+
+    def test_score_is_capped_at_one(self) -> None:
+        from field_matcher import evaluate_field_match
+
+        result = evaluate_field_match(
+            source_field="createdAt",
+            target_field="created_at",
+            source_value="2026-07-10T16:20:00Z",
+            target_schema={
+                "type": "string",
+                "format": "date-time",
+            },
+        )
+
+        self.assertTrue(result.safe_to_patch)
+        self.assertLessEqual(result.score, 1.0)
+
+
+if __name__ == "__main__":
+    unittest.main()
