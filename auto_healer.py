@@ -188,7 +188,11 @@ def deterministic_heal():
             "missing_required_fields": missing_required_fields,
             "invalid_existing_fields": invalid_existing_fields,
             "confidence": match_decision.confidence,
-            "confidence_reason": " ".join(match_decision.reasons),
+            "confidence_reason": (
+                "The candidate field rename passed semantic, type, and "
+                f"format checks with a score of {match_decision.score:.3f}, "
+                f"above the {match_decision.threshold:.3f} safety threshold."
+            ),
             "match_score": match_decision.score,
             "match_threshold": match_decision.threshold,
             "match_reasons": list(match_decision.reasons),
@@ -202,6 +206,11 @@ def deterministic_heal():
 
 def build_heal_report(report_data):
     generated_at = report_data["generated_at"]
+    matching_evidence = "\n".join(
+        f"- {reason}"
+        for reason in report_data["match_reasons"]
+        if not reason.startswith("Decision:")
+    )
 
     return f"""# API Drift Healer Report
 
@@ -227,6 +236,17 @@ OpenAPI requires `{report_data["new_field"]}`, but the test case was sending `{r
 
 ## Confidence Reason
 {report_data["confidence_reason"]}
+
+## Smart Match Decision
+
+- Match score: `{report_data["match_score"]:.3f}`
+- Safety threshold: `{report_data["match_threshold"]:.3f}`
+- Confidence: `{report_data["confidence"]}`
+- Decision: `SAFE PATCH`
+
+## Matching Evidence
+
+{matching_evidence}
 
 ## Files
 - Original test file: `{report_data["original_file"]}`
@@ -329,7 +349,7 @@ def create_secure_pr(old_field, new_field, pr_body):
 
 
 def main():
-    print("=== API DRIFT HEALER V0.3 (EXPLAINABLE SECURE PR FLOW) ===")
+    print("=== API DRIFT HEALER V0.4 (SAFE SMART FIELD MATCHING) ===")
 
     if os.path.exists(HEALED_TEST_FILE):
         os.remove(HEALED_TEST_FILE)
@@ -379,6 +399,9 @@ def main():
         "healed_actual_status": healed_run["actual_status"],
         "confidence": heal_result["confidence"],
         "confidence_reason": heal_result["confidence_reason"],
+        "match_score": heal_result["match_score"],
+        "match_threshold": heal_result["match_threshold"],
+        "match_reasons": heal_result["match_reasons"],
         "generated_at": datetime.now().isoformat(timespec="seconds"),
     }
 
@@ -388,7 +411,7 @@ def main():
         print("\n[5] Creating a human-reviewable Pull Request...")
         create_secure_pr(old_field, new_field, pr_body)
     else:
-        print("\n[5] PR creation skipped for local V0.3 report test.")
+        print("\n[5] PR creation skipped. Local V0.4 report mode is active.")
 
 
 if __name__ == "__main__":
