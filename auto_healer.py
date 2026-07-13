@@ -5,6 +5,7 @@ import sys
 import shutil
 import re
 from datetime import datetime
+from field_matcher import evaluate_field_match
 
 TEST_CASE_FILE = "api_test_case.yaml"
 HEALED_TEST_FILE = "api_test_case.healed.yaml"
@@ -118,7 +119,8 @@ def deterministic_heal():
 
     schema = openapi_data["paths"]["/users"]["post"]["requestBody"]["content"]["application/json"]["schema"]
     required_fields = schema.get("required", [])
-    valid_properties = list(schema.get("properties", {}).keys())
+    properties = schema.get("properties", {})
+    valid_properties = list(properties.keys())
 
     request_body = test_data.get("body", {})
     current_keys = list(request_body.keys())
@@ -134,11 +136,42 @@ def deterministic_heal():
         old_field = invalid_existing_fields[0]
         new_field = missing_required_fields[0]
 
-        if "email" in new_field.lower() and "email" not in old_field.lower():
-            print(f"[!] Security Violation: '{old_field}' -> '{new_field}' match is flagged as risky!")
+        match_decision = evaluate_field_match(
+            source_field=old_field,
+            target_field=new_field,
+            source_value=request_body[old_field],
+            target_schema=properties.get(new_field, {}),
+        )
+
+        print(
+            f"[*] Evaluating candidate match: "
+            f"'{old_field}' -> '{new_field}'"
+        )
+
+        if not match_decision.safe_to_patch:
+            print(
+                f"[!] Unsafe field match rejected: "
+                f"'{old_field}' -> '{new_field}'"
+            )
+            print(
+                f"    Score: {match_decision.score:.3f} | "
+                f"Threshold: {match_decision.threshold:.3f} | "
+                f"Confidence: {match_decision.confidence}"
+            )
+
+            for reason in match_decision.reasons:
+                print(f"    - {reason}")
+
             return None
 
-        print(f"[+] Drift Match Detected: '{old_field}' -> '{new_field}'")
+        print(
+            f"[+] Safe Drift Match Detected: "
+            f"'{old_field}' -> '{new_field}'"
+        )
+        print(
+            f"    Score: {match_decision.score:.3f} | "
+            f"Confidence: {match_decision.confidence}"
+        )
 
         request_body[new_field] = request_body.pop(old_field)
         test_data["body"] = request_body
@@ -154,11 +187,11 @@ def deterministic_heal():
             "new_field": new_field,
             "missing_required_fields": missing_required_fields,
             "invalid_existing_fields": invalid_existing_fields,
-            "confidence": "High",
-            "confidence_reason": (
-                "Exactly one missing required field and one invalid existing field were found. "
-                "The field match passed the semantic safety guard and the healed test passed locally."
-            ),
+            "confidence": match_decision.confidence,
+            "confidence_reason": " ".join(match_decision.reasons),
+            "match_score": match_decision.score,
+            "match_threshold": match_decision.threshold,
+            "match_reasons": list(match_decision.reasons),
         }
 
     print("[!] Complex or multiple drift situation. Bypassing automatic intervention.")
