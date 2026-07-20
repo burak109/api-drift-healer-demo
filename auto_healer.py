@@ -108,16 +108,31 @@ def has_staged_changes():
     return result.returncode == 1
 
 
-def deterministic_heal():
-    print(f"\n[*] Healer: Starting drift analysis on '{TEST_CASE_FILE}'...")
+def deterministic_heal(
+    test_case_file=None,
+    openapi_file=None,
+    healed_test_file=None,
+):
+    test_case_file = test_case_file or TEST_CASE_FILE
+    openapi_file = openapi_file or OPENAPI_FILE
+    healed_test_file = healed_test_file or HEALED_TEST_FILE
 
-    with open(TEST_CASE_FILE, "r", encoding="utf-8") as f:
+    print(
+        f"\n[*] Healer: Starting drift analysis on "
+        f"'{test_case_file}'..."
+    )
+
+    with open(test_case_file, "r", encoding="utf-8") as f:
         test_data = yaml.safe_load(f)
 
-    with open(OPENAPI_FILE, "r", encoding="utf-8") as f:
+    with open(openapi_file, "r", encoding="utf-8") as f:
         openapi_data = yaml.safe_load(f)
 
-    schema = openapi_data["paths"]["/users"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+    schema = (
+        openapi_data["paths"]["/users"]["post"]
+        ["requestBody"]["content"]["application/json"]["schema"]
+    )
+
     required_fields = schema.get("required", [])
     properties = schema.get("properties", {})
     valid_properties = list(properties.keys())
@@ -125,14 +140,29 @@ def deterministic_heal():
     request_body = test_data.get("body", {})
     current_keys = list(request_body.keys())
 
-    missing_required_fields = [f for f in required_fields if f not in current_keys]
-    invalid_existing_fields = [k for k in current_keys if k not in valid_properties]
+    missing_required_fields = [
+        field
+        for field in required_fields
+        if field not in current_keys
+    ]
+
+    invalid_existing_fields = [
+        key
+        for key in current_keys
+        if key not in valid_properties
+    ]
 
     if not missing_required_fields:
-        print("[-] No missing required fields. Contract drift not found.")
+        print(
+            "[-] No missing required fields. "
+            "Contract drift not found."
+        )
         return None
 
-    if len(missing_required_fields) == 1 and len(invalid_existing_fields) == 1:
+    if (
+        len(missing_required_fields) == 1
+        and len(invalid_existing_fields) == 1
+    ):
         old_field = invalid_existing_fields[0]
         new_field = missing_required_fields[0]
 
@@ -176,31 +206,57 @@ def deterministic_heal():
         request_body[new_field] = request_body.pop(old_field)
         test_data["body"] = request_body
 
-        with open(HEALED_TEST_FILE, "w", encoding="utf-8") as f:
-            yaml.dump(test_data, f, allow_unicode=True, sort_keys=False)
+        with open(
+            healed_test_file,
+            "w",
+            encoding="utf-8",
+        ) as f:
+            yaml.dump(
+                test_data,
+                f,
+                allow_unicode=True,
+                sort_keys=False,
+            )
 
-        print(f"[+] Healed test file generated for demo: {HEALED_TEST_FILE}")
+        print(
+            f"[+] Healed test file generated for demo: "
+            f"{healed_test_file}"
+        )
 
         return {
-            "test_name": test_data.get("name", "Unknown Test"),
+            "test_name": test_data.get(
+                "name",
+                "Unknown Test",
+            ),
             "old_field": old_field,
             "new_field": new_field,
             "missing_required_fields": missing_required_fields,
             "invalid_existing_fields": invalid_existing_fields,
             "confidence": match_decision.confidence,
             "confidence_reason": (
-                "The candidate field rename passed semantic, type, and "
-                f"format checks with a score of {match_decision.score:.3f}, "
-                f"above the {match_decision.threshold:.3f} safety threshold."
+                "The candidate field rename passed semantic, "
+                "type, and format checks with a score of "
+                f"{match_decision.score:.3f}, above the "
+                f"{match_decision.threshold:.3f} safety threshold."
             ),
             "match_score": match_decision.score,
             "match_threshold": match_decision.threshold,
             "match_reasons": list(match_decision.reasons),
         }
 
-    print("[!] Complex or multiple drift situation. Bypassing automatic intervention.")
-    print(f"    Missing required fields: {missing_required_fields}")
-    print(f"    Invalid existing fields: {invalid_existing_fields}")
+    print(
+        "[!] Complex or multiple drift situation. "
+        "Bypassing automatic intervention."
+    )
+    print(
+        f"    Missing required fields: "
+        f"{missing_required_fields}"
+    )
+    print(
+        f"    Invalid existing fields: "
+        f"{invalid_existing_fields}"
+    )
+
     return None
 
 
@@ -263,18 +319,36 @@ No PASS, No PR.
 """
 
 
-def generate_heal_report(report_data):
+def generate_heal_report(
+    report_data,
+    report_file=None,
+):
+    report_file = report_file or HEAL_REPORT_FILE
+
     report = build_heal_report(report_data)
 
-    with open(HEAL_REPORT_FILE, "w", encoding="utf-8") as f:
+    with open(report_file, "w", encoding="utf-8") as f:
         f.write(report)
 
-    print(f"[+] Heal report generated: {HEAL_REPORT_FILE}")
+    print(f"[+] Heal report generated: {report_file}")
+
     return report
 
 
-def create_secure_pr(old_field, new_field, pr_body):
-    print("\n[*] SECURITY LOCK RELEASED: PASS received. Initiating GitHub PR flow...")
+def create_secure_pr(
+    old_field,
+    new_field,
+    pr_body,
+    test_case_file=None,
+    healed_test_file=None,
+):
+    test_case_file = test_case_file or TEST_CASE_FILE
+    healed_test_file = healed_test_file or HEALED_TEST_FILE
+
+    print(
+        "\n[*] SECURITY LOCK RELEASED: "
+        "PASS received. Initiating GitHub PR flow..."
+    )
 
     if not is_working_tree_clean():
         print("\n[ERROR] Working tree is not clean. Commit or stash your changes before creating a PR.")
@@ -293,12 +367,15 @@ def create_secure_pr(old_field, new_field, pr_body):
     ):
         return
 
-    shutil.copyfile(HEALED_TEST_FILE, TEST_CASE_FILE)
+    shutil.copyfile(
+    healed_test_file,
+    test_case_file,
+)
 
     print(f"[*] Committing and pushing changes to branch '{branch_name}'...")
 
     if not run_command(
-        ["git", "add", TEST_CASE_FILE],
+        ["git", "add", str(test_case_file)],
         "Failed to stage the patched test file."
     ):
         return
