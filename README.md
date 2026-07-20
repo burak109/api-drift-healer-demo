@@ -1,98 +1,120 @@
 # API Drift Healer 🛠️
 
-**Current release: V0.4 - Safe Smart Field Matching**
+**Current release: V0.5 — Installable Typer CLI**
 
-API Drift Healer is a local-first Python prototype that detects contract drift between an OpenAPI specification and a YAML-based API test case.
+API Drift Healer is a local-first Python prototype that detects contract drift between an OpenAPI specification and a YAML API test case.
 
-In the demo scenario, the API contract expects:
+It evaluates a possible field rename, generates a patch only when the match is considered safe, reruns the healed test locally, and produces a readable report.
 
-```text
-email_address
-```
+The tool can also apply the validated patch to the original test file or open a human-reviewable GitHub Pull Request.
 
-But the outdated test still sends:
-
-```text
-userEmail
-```
-
-The original test fails with `400`. API Drift Healer evaluates the possible field rename using deterministic semantic, type, format, qualifier, and similarity checks.
-
-It only generates a patch when the candidate passes the safety rules.
-
-The healed test is then rerun locally, documented in a readable report, and can optionally be submitted as a human-reviewable GitHub Pull Request.
-
-> 🛑 **Golden Rule: No PASS, No PR.**
->
-> Generating a patch is not enough.
->
-> The healed test must pass locally before the tool can open a Pull Request.
+> **Golden Rule: No PASS, no apply. No PASS, no PR.**
 
 ---
 
-## The Problem: API Contract Drift
+## The Problem
 
-API contracts change.
-
-Tests often do not change at the same time.
+API contracts change, but test data does not always change at the same time.
 
 Example:
 
-- **OpenAPI requires:** `email_address`
-- **Outdated test sends:** `userEmail`
-- **Original result:** `400 Bad Request`
+```text
+OpenAPI requires: email_address
+Test sends:       userEmail
+Original result:  400 Bad Request
+```
+
+API Drift Healer uses deterministic checks to decide whether this is a safe field rename.
+
+It evaluates:
+
+- normalized field names
+- semantic concepts
+- field qualifiers
+- runtime value type
+- OpenAPI type
+- runtime value format
+- OpenAPI format
+- normalized string similarity
+- hard safety conflicts
+- a deterministic match score
+
+A numerical score cannot override a hard conflict.
+
+---
+
+## Demo Scenario
+
+The API contract expects:
+
+```yaml
+email_address:
+  type: string
+  format: email
+```
+
+The outdated test sends:
+
+```yaml
+body:
+  name: Test User
+  userEmail: qa_user@example.com
+```
+
+The original test fails:
 
 ```text
 [FAIL] Expected 201, got 400
 Error: missing required field: email_address
 ```
 
-This mismatch is API contract drift.
-
-A developer could fix it manually, but repetitive contract changes create noisy failures and consume review time.
-
-API Drift Healer demonstrates a safer workflow:
+The matcher evaluates:
 
 ```text
-detect
-→ evaluate
-→ patch
-→ validate
-→ explain
-→ request human review
+userEmail -> email_address
 ```
 
----
+Example decision:
 
-## What This Prototype Does
+```text
+Score: 0.772
+Threshold: 0.700
+Confidence: High
+Decision: SAFE PATCH
+```
 
-API Drift Healer compares a YAML API test case with an OpenAPI request schema.
+The healed test is then rerun locally:
 
-The current version can:
+```text
+[PASS] Expected 201, got 201
+```
 
-- run the original API test
-- detect that the test fails
-- read the OpenAPI request schema
-- identify one missing required field
-- identify one invalid request-body field
-- normalize different field naming styles
-- extract semantic concepts from field names
-- detect conflicting field qualifiers
-- validate the source value against the target OpenAPI type
-- validate the source value against the target OpenAPI format
-- calculate normalized field-name similarity
-- calculate a deterministic field-match score
-- reject unsafe or ambiguous candidate mappings
-- generate a healed test file only when the candidate is safe
-- rerun the healed test locally
-- generate an explainability report
-- optionally open a GitHub Pull Request
+Only after this PASS result can the tool apply the change or continue to the Pull Request flow.
 
 ---
 
-## Current V0.4 Scope
+## What V0.5 Adds
 
-V0.4 intentionally supports a narrow automatic-healing scenario:
+V0.5 turns the prototype into an installable command-line tool.
+
+It adds:
+
+- a Typer-based CLI
+- `--test` and `--openapi` file arguments
+- optional custom output paths
+- a real `--dry-run` mode
+- a validated `--apply` mode
+- `--create-pr` flag validation
+- reusable healer execution logic
+- installable `api-drift-healer` command
+- CLI test coverage
+- support for running outside the repository directory with absolute paths
+
+---
+
+## Current Safety Scope
+
+V0.5 intentionally supports a narrow automatic-healing scenario:
 
 ```text
 1 missing required OpenAPI field
@@ -100,9 +122,16 @@ V0.4 intentionally supports a narrow automatic-healing scenario:
 1 invalid existing request field
 ```
 
-The tool does not attempt a blind rewrite when multiple fields are missing, multiple invalid fields exist, or the candidate mapping is ambiguous.
+The tool stops when:
 
-This constraint is deliberate.
+- multiple required fields are missing
+- multiple invalid request fields exist
+- the candidate mapping is ambiguous
+- semantic qualifiers conflict
+- OpenAPI type or format checks fail
+- the score is below the safety threshold
+- a hard safety conflict is detected
+- the healed test does not pass
 
 A cautious tool may stop more often.
 
@@ -118,7 +147,7 @@ phoneNumber -> phone_number
 legacyCode  -> legacy_code
 ```
 
-These candidates can be accepted when their semantic, type, format, and safety checks agree.
+These candidates may be accepted when their semantic, type, format, and safety checks agree.
 
 ---
 
@@ -130,340 +159,72 @@ firstName   -> last_name
 userId      -> customer_id
 ```
 
-Examples of rejection reasons:
+Common rejection reasons:
 
 - no shared semantic concept
-- incompatible OpenAPI format
 - incompatible OpenAPI type
+- incompatible OpenAPI format
 - conflicting qualifiers
 - no strong matching anchor
 - score below the safety threshold
 - hard safety conflict
 
-A numerical score cannot override a hard conflict.
-
 ---
 
-## Demo Flow
+## Installation
 
-```text
-Original test FAIL
-        ↓
-OpenAPI contract drift detected
-        ↓
-One candidate field rename identified
-        ↓
-Field names normalized
-        ↓
-Semantic concepts compared
-        ↓
-Qualifiers checked
-        ↓
-OpenAPI type checked
-        ↓
-OpenAPI format checked
-        ↓
-Deterministic score calculated
-        ↓
-SAFE PATCH or REJECT
-        ↓
-Healed test generated only if safe
-        ↓
-Healed test rerun locally
-        ↓
-Healed test PASS
-        ↓
-heal_report.md generated
-        ↓
-Optional GitHub Pull Request
-        ↓
-Human review
-```
-
-The tool does not consider a generated patch successful until the healed test passes.
-
----
-
-## Project Structure
-
-```text
-api-drift-healer-demo/
-├── mock_server.py
-├── openapi.yaml
-├── api_test_case.yaml
-├── test_runner.py
-├── auto_healer.py
-├── field_matcher.py
-├── test_field_matcher.py
-├── test_auto_healer.py
-├── requirements.txt
-└── .gitignore
-```
-
-Generated files such as the healed test and report may be ignored by Git depending on the `.gitignore` configuration.
-
----
-
-## Core Files
-
-### `mock_server.py`
-
-A small local Flask API used by the demo.
-
-It exposes:
-
-```text
-POST /users
-```
-
-The server expects a request body containing:
-
-```json
-{
-  "name": "Test User",
-  "email_address": "qa_user@example.com"
-}
-```
-
-If `email_address` is missing, the server returns `400`.
-
----
-
-### `openapi.yaml`
-
-The source of truth for the API contract.
-
-It defines `email_address` as a required request property:
-
-```yaml
-required:
-  - email_address
-```
-
-The schema also defines its type and format:
-
-```yaml
-email_address:
-  type: string
-  format: email
-```
-
----
-
-### `api_test_case.yaml`
-
-The intentionally outdated API test case.
-
-It sends:
-
-```yaml
-body:
-  name: Test User
-  userEmail: qa_user@example.com
-```
-
-The test is expected to fail before healing because the API now requires `email_address`.
-
----
-
-### `test_runner.py`
-
-A lightweight YAML-based API test runner.
-
-It:
-
-1. loads a test case
-2. sends the configured HTTP request
-3. compares the actual status with the expected status
-4. prints a PASS or FAIL result
-
-Example failure:
-
-```text
-[FAIL] Expected 201, got 400
-```
-
-Example success:
-
-```text
-[PASS] Expected 201, got 201
-```
-
----
-
-### `auto_healer.py`
-
-The main orchestration layer.
-
-It runs the complete workflow:
-
-1. runs the original test
-2. stops when the original test already passes
-3. reads the OpenAPI request schema
-4. identifies the missing and invalid fields
-5. sends the candidate rename to `field_matcher.py`
-6. stops when the matcher rejects the candidate
-7. generates a healed test file for a safe candidate
-8. reruns the healed test locally
-9. stops when the healed test fails
-10. generates `heal_report.md`
-11. optionally starts the secure PR workflow
-
-It also protects the PR flow with a clean-working-tree guard.
-
----
-
-### `field_matcher.py`
-
-The deterministic V0.4 field-matching engine.
-
-It performs:
-
-- field-name normalization
-- semantic concept extraction
-- qualifier conflict detection
-- runtime value-type detection
-- runtime value-format detection
-- OpenAPI type compatibility checks
-- OpenAPI format compatibility checks
-- normalized string similarity calculation
-- deterministic weighted scoring
-- hard conflict rejection
-
-The current safety threshold is:
-
-```text
-0.700
-```
-
-The threshold is only one part of the decision.
-
-A candidate can still be rejected above the threshold when a hard safety conflict exists.
-
-Examples:
-
-```text
-firstName -> last_name
-userId -> customer_id
-displayName -> email_address
-```
-
-The matcher returns a structured decision containing:
-
-- score
-- threshold
-- confidence
-- safe or rejected state
-- matching reasons
-- conflict reasons
-
----
-
-### `test_field_matcher.py`
-
-Contains 45 matcher unit tests covering:
-
-- camelCase normalization
-- snake_case normalization
-- kebab-case normalization
-- PascalCase normalization
-- acronym handling
-- semantic concept detection
-- email concepts
-- phone concepts
-- ID concepts
-- date concepts
-- name qualifier conflicts
-- primary and secondary conflicts
-- created and updated conflicts
-- value-type detection
-- email-format detection
-- UUID-format detection
-- date-time detection
-- phone-format detection
-- OpenAPI type compatibility
-- OpenAPI format compatibility
-- deterministic scoring
-- score capping
-- safe field mappings
-- rejected field mappings
-
----
-
-### `test_auto_healer.py`
-
-Contains three integration tests.
-
-The tests verify that:
-
-- `userEmail -> email_address` generates a healed file
-- `displayName -> email_address` is rejected
-- `firstName -> last_name` is rejected
-
-Temporary directories are used so the tests do not overwrite the real demo files.
-
----
-
-## Requirements
+### Requirements
 
 - Python 3.10 or newer
-- Flask
-- PyYAML
-- requests
-- GitHub CLI, only for PR mode
+- GitHub CLI only for Pull Request mode
 
-Install the Python dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-For GitHub PR mode, install and authenticate GitHub CLI:
-
-```bash
-gh auth login
-```
-
----
-
-## Quick Start
-
-### 1. Clone the repository
+Clone the repository:
 
 ```bash
 git clone https://github.com/burak109/api-drift-healer-demo.git
 cd api-drift-healer-demo
 ```
 
----
+Create and activate a virtual environment.
 
-### 2. Create a virtual environment
-
-#### macOS / Linux
+### macOS / Linux
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-#### Windows PowerShell
+### Windows PowerShell
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
----
-
-### 3. Install dependencies
+Install the project in editable mode:
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -e .
+```
+
+This installs the project dependencies and creates the command:
+
+```text
+api-drift-healer
+```
+
+Verify the installation:
+
+```bash
+api-drift-healer --help
+api-drift-healer heal --help
 ```
 
 ---
 
-### 4. Start the mock API server
+## Quick Start
+
+### 1. Start the mock API
 
 Open the first terminal:
 
@@ -471,7 +232,7 @@ Open the first terminal:
 python mock_server.py
 ```
 
-The server runs at:
+The demo server runs at:
 
 ```text
 http://localhost:3000
@@ -479,110 +240,74 @@ http://localhost:3000
 
 Keep this terminal open.
 
----
+### 2. Run the healer
 
-### 5. Run API Drift Healer
+Open a second terminal.
 
-Open a second terminal:
+#### Dry-run mode
+
+Analyze the drift without creating or changing files:
 
 ```bash
-python auto_healer.py
+api-drift-healer heal \
+  --test api_test_case.yaml \
+  --openapi openapi.yaml \
+  --dry-run
 ```
 
-Expected output:
+Expected result:
 
 ```text
-=== API DRIFT HEALER V0.4 (SAFE SMART FIELD MATCHING) ===
-
-[1] Running the original test case...
-[*] Running test: Create User - Success (api_test_case.yaml)
-[FAIL] Expected 201, got 400
-       Error: missing required field: email_address
-
-[!] Test FAILED! Triggering Healer...
-
-[*] Healer: Starting drift analysis on 'api_test_case.yaml'...
-[*] Evaluating candidate match: 'userEmail' -> 'email_address'
-[+] Safe Drift Match Detected: 'userEmail' -> 'email_address'
-    Score: 0.772 | Confidence: High
-[+] Healed test file generated for demo: api_test_case.healed.yaml
-
-[3] Automatically validating the healed test case...
-[*] Running test: Create User - Success (api_test_case.healed.yaml)
-[PASS] Expected 201, got 201
-
-[PASS] Healed test validated successfully.
-Golden Rule (No PASS, No PR) satisfied!
-
-[4] Generating explainability report...
-[+] Heal report generated: heal_report.md
-
-[5] PR creation skipped. Local V0.4 report mode is active.
+Mode: DRY RUN
+Decision: SAFE PATCH
+No healed test, report, apply, or PR operation was performed.
 ```
 
-By default, the tool runs in local report mode and does not open a Pull Request.
+#### Default heal mode
 
----
-
-## Local Report Mode
-
-Run:
+Generate a healed test file and explainability report without modifying the original test:
 
 ```bash
-python auto_healer.py
+api-drift-healer heal \
+  --test api_test_case.yaml \
+  --openapi openapi.yaml
 ```
 
-Local report mode:
-
-- runs the original failing test
-- detects the contract drift
-- evaluates the candidate field rename
-- rejects unsafe mappings
-- generates the healed test when safe
-- reruns the healed test
-- generates `heal_report.md`
-- skips GitHub PR creation
-
-This mode is useful for:
-
-- local development
-- debugging
-- demonstrations
-- reviewing the matcher decision
-- validating safety changes
-
----
-
-## GitHub PR Mode
-
-PR creation is disabled by default.
-
-To enable it, set:
+Generated files:
 
 ```text
-CREATE_PR=true
+api_test_case.healed.yaml
+heal_report.md
 ```
 
-### macOS / Linux
+#### Apply mode
+
+Apply the validated patch to the original test file:
 
 ```bash
-CREATE_PR=true python auto_healer.py
+api-drift-healer heal \
+  --test api_test_case.yaml \
+  --openapi openapi.yaml \
+  --apply
 ```
 
-### Windows PowerShell
+The original file is changed only after the healed test passes locally.
 
-```powershell
-$env:CREATE_PR="true"
-python auto_healer.py
+#### Pull Request mode
+
+Apply the validated patch and continue to the secure GitHub Pull Request flow:
+
+```bash
+api-drift-healer heal \
+  --test api_test_case.yaml \
+  --openapi openapi.yaml \
+  --apply \
+  --create-pr
 ```
 
-Clear the PowerShell variable afterward:
+`--create-pr` requires `--apply`.
 
-```powershell
-Remove-Item Env:CREATE_PR
-```
-
-PR mode requires:
+PR mode also requires:
 
 - GitHub CLI installed
 - GitHub CLI authenticated
@@ -592,193 +317,248 @@ PR mode requires:
 - a safe matcher decision
 - a locally passing healed test
 
-If the working tree is not clean, the tool stops before creating a branch.
+Authenticate GitHub CLI with:
 
-This prevents unrelated local changes from being mixed into the generated fix.
+```bash
+gh auth login
+```
+
+#### Custom output path
+
+```bash
+api-drift-healer heal \
+  --test api_test_case.yaml \
+  --openapi openapi.yaml \
+  --output generated/custom-healed.yaml
+```
 
 ---
 
-## Example Generated Report
+## CLI Options
 
-After a successful safe heal, the tool generates:
+```text
+--test       Path to the YAML API test file. Required.
+--openapi    Path to the OpenAPI contract file. Required.
+--output     Custom path for the generated healed test file.
+--dry-run    Analyze drift without writing files.
+--apply      Apply the validated patch to the original test file.
+--create-pr  Open a Pull Request after a validated apply.
+```
+
+Invalid combinations are rejected:
+
+```text
+--dry-run + --apply
+--create-pr without --apply
+```
+
+---
+
+## Workflow
+
+```text
+Original test runs
+        ↓
+Original test FAILS
+        ↓
+OpenAPI schema is loaded
+        ↓
+Missing and invalid fields are identified
+        ↓
+Candidate rename is evaluated
+        ↓
+SAFE PATCH or REJECT
+        ↓
+Healed test is generated only if safe
+        ↓
+Healed test runs locally
+        ↓
+Healed test PASSES
+        ↓
+heal_report.md is generated
+        ↓
+Optional validated apply
+        ↓
+Optional GitHub Pull Request
+        ↓
+Human review
+```
+
+The tool never treats patch generation alone as success.
+
+---
+
+## Project Structure
+
+```text
+api-drift-healer-demo/
+├── api_drift_healer/
+│   ├── __init__.py
+│   └── cli.py
+├── mock_server.py
+├── openapi.yaml
+├── api_test_case.yaml
+├── test_runner.py
+├── auto_healer.py
+├── field_matcher.py
+├── test_field_matcher.py
+├── test_auto_healer.py
+├── test_cli.py
+├── pyproject.toml
+├── requirements.txt
+├── README.md
+└── .gitignore
+```
+
+Generated files such as `api_test_case.healed.yaml` and `heal_report.md` are ignored by Git.
+
+---
+
+## Core Files
+
+### `api_drift_healer/cli.py`
+
+The Typer command-line interface.
+
+It:
+
+- validates CLI arguments
+- resolves input and output paths
+- selects the execution mode
+- rejects unsafe flag combinations
+- calls the reusable healer engine
+- returns the engine exit code
+
+### `auto_healer.py`
+
+The orchestration layer.
+
+It:
+
+- runs the original test
+- loads the OpenAPI schema
+- identifies candidate drift
+- calls the deterministic matcher
+- generates the healed test
+- validates the healed test
+- creates the report
+- optionally applies the validated patch
+- optionally starts the Pull Request flow
+
+### `field_matcher.py`
+
+The deterministic safety engine.
+
+It performs:
+
+- field-name normalization
+- semantic concept extraction
+- qualifier conflict detection
+- value-type detection
+- value-format detection
+- OpenAPI type compatibility checks
+- OpenAPI format compatibility checks
+- string similarity calculation
+- deterministic weighted scoring
+- hard conflict rejection
+
+The current safety threshold is:
+
+```text
+0.700
+```
+
+### `test_runner.py`
+
+A small YAML-based API test runner.
+
+It loads a test case, sends the configured request, and compares the actual status with the expected status.
+
+### `mock_server.py`
+
+A local Flask API used by the demo.
+
+It exposes:
+
+```text
+POST /users
+```
+
+The server expects `email_address` and returns `400` when the field is missing.
+
+---
+
+## Explainability Report
+
+After a successful validated heal, the tool generates:
 
 ```text
 heal_report.md
 ```
 
-Example:
-
-```md
-# API Drift Healer Report
-
-## Summary
-API Drift Healer detected a contract drift, generated a safe patch, validated the healed test locally, and prepared a human-reviewable report for the fix.
-
-## Test
-`Create User - Success`
-
-## Root Cause
-OpenAPI requires `email_address`, but the test case was sending `userEmail`.
-
-## Applied Fix
-`userEmail` -> `email_address`
-
-## Validation
-- Original test: Failed with `400`
-- Expected status: `201`
-- Healed test: Passed with `201`
-
-## Confidence
-`High`
-
-## Confidence Reason
-The candidate field rename passed semantic, type, and format checks with a score of 0.772, above the 0.700 safety threshold.
-
-## Smart Match Decision
-
-- Match score: `0.772`
-- Safety threshold: `0.700`
-- Confidence: `High`
-- Decision: `SAFE PATCH`
-
-## Matching Evidence
-
-- Normalized field tokens do not match exactly
-- Shared semantic concept: email
-- Value type 'string' matches OpenAPI type 'string'
-- Detected value format 'email' matches OpenAPI format 'email'
-- Normalized string similarity: 0.435
-
-## Files
-- Original test file: `api_test_case.yaml`
-- Healed test file: `api_test_case.healed.yaml`
-- OpenAPI contract: `openapi.yaml`
-
-## Safety
-This report was generated only after the healed test passed locally.
-
-No PASS, No PR.
-```
-
----
-
-## Example Rejected Decision
-
-Unsafe candidate:
-
-```text
-displayName -> email_address
-```
-
-Example decision:
-
-```text
-Score: 0.158
-Threshold: 0.700
-Confidence: Low
-Decision: REJECT
-```
-
-Reasons include:
-
-```text
-No shared semantic concept was found
-Detected value format conflicts with OpenAPI format 'email'
-No strong matching anchor was found
-Score is below the safety threshold
-Hard safety conflict detected
-```
-
-No healed file is created for this candidate.
-
----
-
-## Example Pull Request
-
-When PR mode is enabled, the tool can open a reviewable Pull Request.
-
-Example title:
-
-```text
-Auto-heal API test drift: userEmail -> email_address
-```
-
-Example diff:
-
-```diff
-body:
-  name: Test User
-- userEmail: qa_user@example.com
-+ email_address: qa_user@example.com
-```
-
-The Pull Request includes:
+The report includes:
 
 - root cause
+- candidate field rename
 - applied fix
-- validation result
-- confidence
+- original test result
+- healed test result
 - match score
 - safety threshold
+- confidence
 - matching evidence
-- generated report
+- conflict reasons
+- involved files
+- safety statement
 
-The bot does not merge the Pull Request.
+Example summary:
 
-A human remains responsible for review and merge.
+```text
+Root cause:
+OpenAPI requires email_address, but the test sends userEmail.
+
+Applied fix:
+userEmail -> email_address
+
+Validation:
+Original test: 400 FAIL
+Healed test: 201 PASS
+
+Decision:
+SAFE PATCH
+```
 
 ---
 
-## Safety Principles
+## Pull Request Safety
 
-API Drift Healer follows these rules:
+The Pull Request workflow follows these rules:
 
 ```text
-No PASS, No PR.
+No PASS, no PR.
 No direct push to main.
 No blind overwrite.
 No auto-merge.
 Human review stays in the loop.
 ```
 
-An automatic patch requires:
+The tool checks for a clean working tree before creating a branch.
 
-```text
-1 missing required field
-+
-1 invalid existing field
-+
-a strong matching anchor
-+
-score meets the safety threshold
-+
-no semantic conflict
-+
-no qualifier conflict
-+
-no OpenAPI type conflict
-+
-no OpenAPI format conflict
-+
-healed test passes locally
-```
+This prevents unrelated local changes from being mixed into the generated fix.
 
-A high score cannot override a hard safety conflict.
-
-When the drift is complex, ambiguous, or risky, the tool stops.
-
-That is intentional.
+The bot opens a reviewable Pull Request but does not merge it.
 
 ---
 
 ## Automated Tests
 
-Run the complete V0.4 test suite:
+Run the complete test suite:
 
 ```bash
 python -m unittest -v \
   test_field_matcher.py \
-  test_auto_healer.py
+  test_auto_healer.py \
+  test_cli.py
 ```
 
 Current suite:
@@ -787,19 +567,30 @@ Current suite:
 45 matcher unit tests
 +
 3 healer integration tests
++
+8 CLI tests
 =
-48 automated tests
+56 automated tests
 ```
-
-The tests cover both successful healing and deliberate rejection.
 
 Expected result:
 
 ```text
-Ran 48 tests
+Ran 56 tests
 
 OK
 ```
+
+The CLI tests cover:
+
+- main help output
+- required CLI options
+- invalid flag combinations
+- default heal mode
+- dry-run mode
+- apply mode
+- custom output forwarding
+- engine argument forwarding
 
 ---
 
@@ -811,48 +602,22 @@ V0.1   ✅ One-command FAIL -> HEAL -> PASS flow
 V0.2   ✅ Secure PR flow after local validation
 V0.3   ✅ Explainability report generation
 V0.3.1 ✅ CREATE_PR toggle and clean working tree guard
-V0.4   ✅ Field-name normalization
-V0.4   ✅ Semantic concept extraction
-V0.4   ✅ Qualifier conflict guards
-V0.4   ✅ OpenAPI type compatibility
-V0.4   ✅ OpenAPI format compatibility
-V0.4   ✅ Deterministic scoring
-V0.4   ✅ Safety threshold
-V0.4   ✅ SAFE PATCH and REJECT decisions
-V0.4   ✅ Match evidence reporting
-V0.4   ✅ 45 matcher unit tests
-V0.4   ✅ 3 healer integration tests
+V0.4   ✅ Safe smart field matching
+V0.4   ✅ Semantic, qualifier, type, and format checks
+V0.4   ✅ Deterministic scoring and hard conflict rejection
+V0.4   ✅ 48 automated tests
+V0.5   ✅ Installable Typer CLI
+V0.5   ✅ File path arguments
+V0.5   ✅ Dry-run mode
+V0.5   ✅ Validated apply mode
+V0.5   ✅ CLI flag validation
+V0.5   ✅ Custom output support
+V0.5   ✅ 56 automated tests
 ```
 
 ---
 
 ## Roadmap
-
-### V0.5 — CLI Arguments
-
-Replace hardcoded file paths with command-line arguments.
-
-Possible usage:
-
-```bash
-api-drift-healer heal \
-  --test api_test_case.yaml \
-  --openapi openapi.yaml
-```
-
-Possible options:
-
-```text
---test
---openapi
---output
---apply
---create-pr
---dry-run
---threshold
-```
-
----
 
 ### V1 — Postman Adapter
 
@@ -870,37 +635,9 @@ Core drift engine
 Patched Postman collection
 ```
 
----
-
 ### V1.1 — VS Code `.http` Adapter
 
 Support REST Client and `.http` request files.
-
-Example input:
-
-```http
-POST http://localhost:3000/users
-Content-Type: application/json
-
-{
-  "name": "Test User",
-  "userEmail": "qa_user@example.com"
-}
-```
-
-Example healed request:
-
-```http
-POST http://localhost:3000/users
-Content-Type: application/json
-
-{
-  "name": "Test User",
-  "email_address": "qa_user@example.com"
-}
-```
-
----
 
 ### V1.2 — Pytest / Requests Adapter
 
@@ -914,8 +651,6 @@ Initial goals:
 - preserve surrounding test logic
 - reject risky automatic rewrites
 
----
-
 ### V2 — GitHub Actions Integration
 
 Run API Drift Healer inside CI.
@@ -927,14 +662,12 @@ CI test fails
         ↓
 API Drift Healer reads OpenAPI
         ↓
-Candidate patch evaluated
+Candidate patch is evaluated
         ↓
 Healed test passes
         ↓
 Bot opens a PR or comments on an existing PR
 ```
-
----
 
 ### V3 — Local LLM Explanation Layer
 
@@ -981,57 +714,9 @@ It does not require:
 - OpenAI API access
 - remote test-data processing
 - external AI services
-- API keys for local report mode
+- API keys for local analysis
 
-This makes the early prototype easier to inspect, test, and trust.
-
-GitHub authentication is only needed when PR mode is enabled.
-
----
-
-## Demo Summary
-
-```text
-OpenAPI requires:
-email_address
-
-Test sends:
-userEmail
-
-Original test:
-400 FAIL
-
-Smart matcher evaluates:
-- normalized field names
-- semantic concepts
-- qualifiers
-- OpenAPI type
-- OpenAPI format
-- normalized string similarity
-- deterministic score
-- hard safety conflicts
-
-Decision:
-SAFE PATCH
-
-Match score:
-0.772
-
-Safety threshold:
-0.700
-
-Healer applies:
-userEmail -> email_address
-
-Healed test:
-201 PASS
-
-Report:
-Generated with score and matching evidence
-
-PR:
-Optional and human-reviewable
-```
+GitHub authentication is only required for Pull Request mode.
 
 ---
 
