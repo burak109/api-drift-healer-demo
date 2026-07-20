@@ -425,41 +425,84 @@ def create_secure_pr(
     subprocess.run(["git", "checkout", "main"], capture_output=True)
 
 
-def main():
-    print("=== API DRIFT HEALER V0.4 (SAFE SMART FIELD MATCHING) ===")
+def run_healer(
+    test_case_file=TEST_CASE_FILE,
+    openapi_file=OPENAPI_FILE,
+    healed_test_file=HEALED_TEST_FILE,
+    report_file=HEAL_REPORT_FILE,
+    create_pr=False,
+):
+    """
+    Runs the complete API drift healing flow.
 
-    if os.path.exists(HEALED_TEST_FILE):
-        os.remove(HEALED_TEST_FILE)
+    Returns:
+        0 when the original test already passes or healing succeeds.
+        1 when healing is rejected or validation fails.
+    """
+    test_case_file = str(test_case_file)
+    openapi_file = str(openapi_file)
+    healed_test_file = str(healed_test_file)
+    report_file = str(report_file)
 
-    if os.path.exists(HEAL_REPORT_FILE):
-        os.remove(HEAL_REPORT_FILE)
+    print(
+        "=== API DRIFT HEALER V0.4 "
+        "(SAFE SMART FIELD MATCHING) ==="
+    )
+
+    if os.path.exists(healed_test_file):
+        os.remove(healed_test_file)
+
+    if os.path.exists(report_file):
+        os.remove(report_file)
 
     print("\n[1] Running the original test case...")
-    first_run = run_test_case(TEST_CASE_FILE)
+
+    first_run = run_test_case(test_case_file)
 
     if first_run["returncode"] == 0:
-        print("\n[+] Test is already passing. No drift detected, skipping healer and PR.")
-        sys.exit(0)
+        print(
+            "\n[+] Test is already passing. "
+            "No drift detected, skipping healer and PR."
+        )
+        return 0
 
     print("\n[!] Test FAILED! Triggering Healer...")
 
-    heal_result = deterministic_heal()
+    heal_result = deterministic_heal(
+        test_case_file=test_case_file,
+        openapi_file=openapi_file,
+        healed_test_file=healed_test_file,
+    )
 
     if not heal_result:
-        print("\n[ERROR] Auto-healing failed or flagged as risky. No PR will be opened.")
-        sys.exit(1)
+        print(
+            "\n[ERROR] Auto-healing failed or was flagged "
+            "as risky. No PR will be opened."
+        )
+        return 1
 
     old_field = heal_result["old_field"]
     new_field = heal_result["new_field"]
 
-    print("\n[3] Automatically validating the healed test case...")
-    healed_run = run_test_case(HEALED_TEST_FILE)
+    print(
+        "\n[3] Automatically validating "
+        "the healed test case..."
+    )
+
+    healed_run = run_test_case(healed_test_file)
 
     if healed_run["returncode"] != 0:
-        print("\n[ERROR] Test file patched but server still rejected it (FAIL). NO PR WILL BE OPENED!")
-        sys.exit(1)
+        print(
+            "\n[ERROR] Test file was patched, but the server "
+            "still rejected it."
+        )
+        print("[ERROR] No apply or PR operation will be performed.")
+        return 1
 
-    print("\n[PASS] Healed test validated successfully. Golden Rule (No PASS, No PR) satisfied!")
+    print(
+        "\n[PASS] Healed test validated successfully. "
+        "Golden Rule (No PASS, No PR) satisfied!"
+    )
 
     print("\n[4] Generating explainability report...")
 
@@ -467,9 +510,9 @@ def main():
         "test_name": heal_result["test_name"],
         "old_field": old_field,
         "new_field": new_field,
-        "original_file": TEST_CASE_FILE,
-        "healed_file": HEALED_TEST_FILE,
-        "openapi_file": OPENAPI_FILE,
+        "original_file": test_case_file,
+        "healed_file": healed_test_file,
+        "openapi_file": openapi_file,
         "original_expected_status": first_run["expected_status"],
         "original_actual_status": first_run["actual_status"],
         "healed_expected_status": healed_run["expected_status"],
@@ -479,16 +522,52 @@ def main():
         "match_score": heal_result["match_score"],
         "match_threshold": heal_result["match_threshold"],
         "match_reasons": heal_result["match_reasons"],
-        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "generated_at": datetime.now().isoformat(
+            timespec="seconds"
+        ),
     }
 
-    pr_body = generate_heal_report(report_data)
+    pr_body = generate_heal_report(
+        report_data=report_data,
+        report_file=report_file,
+    )
 
-    if CREATE_PR:
-        print("\n[5] Creating a human-reviewable Pull Request...")
-        create_secure_pr(old_field, new_field, pr_body)
+    if create_pr:
+        print(
+            "\n[5] Creating a human-reviewable "
+            "Pull Request..."
+        )
+
+        create_secure_pr(
+            old_field=old_field,
+            new_field=new_field,
+            pr_body=pr_body,
+            test_case_file=test_case_file,
+            healed_test_file=healed_test_file,
+        )
     else:
-        print("\n[5] PR creation skipped. Local V0.4 report mode is active.")
+        print(
+            "\n[5] PR creation skipped. "
+            "Local V0.4 report mode is active."
+        )
+
+    return 0
+
+
+def main():
+    exit_code = run_healer(
+        test_case_file=TEST_CASE_FILE,
+        openapi_file=OPENAPI_FILE,
+        healed_test_file=HEALED_TEST_FILE,
+        report_file=HEAL_REPORT_FILE,
+        create_pr=CREATE_PR,
+    )
+
+    raise SystemExit(exit_code)
+
+
+if __name__ == "__main__":
+    main()
 
 
 if __name__ == "__main__":
