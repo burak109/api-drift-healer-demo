@@ -583,7 +583,7 @@ def run_healer(
     report_file = str(report_path)
 
     print(
-        "=== API DRIFT HEALER V0.5 "
+        "=== API DRIFT HEALER V0.6 "
         "(CLI HEALING FLOW) ==="
     )
 

@@ -1,6 +1,6 @@
 # API Drift Healer 🛠️
 
-**Current release: V0.5 — Installable Typer CLI**
+**Current release: V0.6 — Product Polish, Runnable Example, and Demo**
 
 Detect OpenAPI contract drift.
 
@@ -615,6 +615,11 @@ V0.5   ✅ Validated apply mode
 V0.5   ✅ CLI flag validation
 V0.5   ✅ Custom output support
 V0.5   ✅ 56 automated tests
+V0.6   ✅ Basic YAML example
+V0.6   ✅ Simplified Quick Start
+V0.6   ✅ Documented current limitations
+V0.6   ✅ One-command demo script
+V0.6   ✅ Product-ready README
 ```
 
 ---

@@ -91,7 +91,7 @@ def heal(
     else:
         mode = "HEAL"
 
-    typer.echo("API Drift Healer V0.5 CLI")
+    typer.echo("API Drift Healer V0.6 CLI")
     typer.echo(f"Test file: {test}")
     typer.echo(f"OpenAPI file: {openapi}")
     typer.echo(f"Output file: {resolved_output}")
