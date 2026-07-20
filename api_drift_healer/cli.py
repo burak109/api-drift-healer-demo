@@ -3,6 +3,8 @@ from typing import Optional
 
 import typer
 
+from auto_healer import run_healer
+
 
 app = typer.Typer(
     name="api-drift-healer",
@@ -73,13 +75,33 @@ def heal(
         f"{test.stem}.healed{test.suffix}"
     )
 
-    typer.echo("API Drift Healer V0.5")
+    if dry_run:
+        raise typer.BadParameter(
+            "--dry-run behavior will be implemented in the next V0.5 step."
+        )
+
+    if apply_patch:
+        raise typer.BadParameter(
+            "--apply behavior will be implemented in the next V0.5 step."
+        )
+
+    report_file = resolved_output.with_name("heal_report.md")
+
+    typer.echo("API Drift Healer V0.5 CLI")
     typer.echo(f"Test file: {test}")
     typer.echo(f"OpenAPI file: {openapi}")
     typer.echo(f"Output file: {resolved_output}")
-    typer.echo(f"Dry run: {dry_run}")
-    typer.echo(f"Apply: {apply_patch}")
-    typer.echo(f"Create PR: {create_pr}")
+    typer.echo("")
+
+    exit_code = run_healer(
+        test_case_file=test,
+        openapi_file=openapi,
+        healed_test_file=resolved_output,
+        report_file=report_file,
+        create_pr=False,
+    )
+
+    raise typer.Exit(code=exit_code)
 
 
 if __name__ == "__main__":
