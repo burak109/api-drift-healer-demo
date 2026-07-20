@@ -1,4 +1,4 @@
-﻿name: Create User - Success
+name: Create User - Success
 method: POST
 url: http://localhost:3000/users
 expected_status: 201
