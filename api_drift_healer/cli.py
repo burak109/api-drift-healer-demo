@@ -11,6 +11,8 @@ app = typer.Typer(
     help="Detect and safely heal API contract drift in YAML test cases.",
     no_args_is_help=True,
 )
+
+
 @app.callback()
 def main() -> None:
     """Detect and safely heal API contract drift."""
@@ -60,10 +62,14 @@ def heal(
     ),
 ) -> None:
     """Analyze and heal API contract drift."""
-
     if dry_run and apply_patch:
         raise typer.BadParameter(
             "--dry-run cannot be used together with --apply."
+        )
+
+    if dry_run and create_pr:
+        raise typer.BadParameter(
+            "--dry-run cannot be used together with --create-pr."
         )
 
     if create_pr and not apply_patch:
@@ -74,18 +80,22 @@ def heal(
     resolved_output = output or test.with_name(
         f"{test.stem}.healed{test.suffix}"
     )
-
-    if apply_patch:
-        raise typer.BadParameter(
-            "--apply behavior will be implemented in the next V0.5 step."
-        )
-
     report_file = resolved_output.with_name("heal_report.md")
+
+    if dry_run:
+        mode = "DRY RUN"
+    elif create_pr:
+        mode = "APPLY + CREATE PR"
+    elif apply_patch:
+        mode = "APPLY"
+    else:
+        mode = "HEAL"
 
     typer.echo("API Drift Healer V0.5 CLI")
     typer.echo(f"Test file: {test}")
     typer.echo(f"OpenAPI file: {openapi}")
     typer.echo(f"Output file: {resolved_output}")
+    typer.echo(f"Mode: {mode}")
     typer.echo("")
 
     exit_code = run_healer(
@@ -93,8 +103,9 @@ def heal(
         openapi_file=openapi,
         healed_test_file=resolved_output,
         report_file=report_file,
-        create_pr=False,
+        create_pr=create_pr,
         dry_run=dry_run,
+        apply_patch=apply_patch,
     )
 
     raise typer.Exit(code=exit_code)
