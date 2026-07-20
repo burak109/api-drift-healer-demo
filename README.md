@@ -68,6 +68,37 @@ A complete runnable example is available here:
 
 ---
 
+## Demo
+
+Run the complete local demo with one command:
+
+```bash
+./scripts/demo_basic_yaml.sh
+```
+
+The demo:
+
+1. starts the local mock API
+2. runs the original failing test
+3. detects `userEmail -> email_address`
+4. previews the repair in dry-run mode
+5. generates the healed YAML test
+6. validates the healed test locally
+7. displays the final field-level diff
+8. removes generated demo files after completion
+
+Expected result:
+
+```text
+Original test : 400 FAIL
+Safe patch    : userEmail -> email_address
+Healed test   : 201 PASS
+```
+
+> The script stops if port `3000` is already in use or the mock API cannot start.
+
+---
+
 ## What V0.5 Adds
 
 V0.5 turns the prototype into an installable command-line tool.
@@ -362,6 +393,8 @@ api-drift-healer-demo/
 │       ├── README.md
 │       ├── openapi.yaml
 │       └── api_test_case.yaml
+├── scripts/
+│   └── demo_basic_yaml.sh
 ├── mock_server.py
 ├── openapi.yaml
 ├── api_test_case.yaml
