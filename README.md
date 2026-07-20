@@ -2,94 +2,69 @@
 
 **Current release: V0.5 — Installable Typer CLI**
 
-API Drift Healer is a local-first Python prototype that detects contract drift between an OpenAPI specification and a YAML API test case.
+Detect OpenAPI contract drift.
 
-It evaluates a possible field rename, generates a patch only when the match is considered safe, reruns the healed test locally, and produces a readable report.
+Heal outdated YAML API tests.
 
-The tool can also apply the validated patch to the original test file or open a human-reviewable GitHub Pull Request.
+Validate every proposed repair locally.
+
+Optionally apply the validated fix or open a human-reviewable GitHub Pull Request.
+
+```text
+400 FAIL
+    ↓
+SAFE FIELD PATCH
+    ↓
+201 PASS
+    ↓
+OPTIONAL APPLY OR PR
+```
 
 > **Golden Rule: No PASS, no apply. No PASS, no PR.**
 
----
+## What It Does
 
-## The Problem
+API Drift Healer compares an OpenAPI contract with a YAML API test case and detects outdated request fields.
 
-API contracts change, but test data does not always change at the same time.
+It:
 
-Example:
+- runs the original API test
+- detects a possible field rename
+- rejects ambiguous or unsafe matches
+- generates a healed test case
+- reruns the healed test locally
+- allows apply or PR operations only after validation passes
 
-```text
-OpenAPI requires: email_address
-Test sends:       userEmail
-Original result:  400 Bad Request
-```
+## Basic Example
 
-API Drift Healer uses deterministic checks to decide whether this is a safe field rename.
-
-It evaluates:
-
-- normalized field names
-- semantic concepts
-- field qualifiers
-- runtime value type
-- OpenAPI type
-- runtime value format
-- OpenAPI format
-- normalized string similarity
-- hard safety conflicts
-- a deterministic match score
-
-A numerical score cannot override a hard conflict.
-
----
-
-## Demo Scenario
-
-The API contract expects:
-
-```yaml
-email_address:
-  type: string
-  format: email
-```
-
-The outdated test sends:
-
-```yaml
-body:
-  name: Test User
-  userEmail: qa_user@example.com
-```
-
-The original test fails:
+The OpenAPI contract requires:
 
 ```text
-[FAIL] Expected 201, got 400
-Error: missing required field: email_address
+email_address
 ```
 
-The matcher evaluates:
+But the test still sends:
+
+```text
+userEmail
+```
+
+API Drift Healer proposes:
 
 ```text
 userEmail -> email_address
 ```
 
-Example decision:
+And validates the result:
 
 ```text
-Score: 0.772
-Threshold: 0.700
-Confidence: High
-Decision: SAFE PATCH
+Original test: 400 FAIL
+Healed test:   201 PASS
 ```
 
-The healed test is then rerun locally:
+A complete runnable example is available here:
 
-```text
-[PASS] Expected 201, got 201
-```
-
-Only after this PASS result can the tool apply the change or continue to the Pull Request flow.
+[`examples/basic_yaml`](examples/basic_yaml/README.md)
 
 ---
 
@@ -112,15 +87,35 @@ It adds:
 
 ---
 
-## Current Safety Scope
+## Current Limitations
 
-V0.5 intentionally supports a narrow automatic-healing scenario:
+API Drift Healer intentionally supports a narrow and cautious healing scope.
+
+### Currently Supported
+
+- YAML API test cases
+- one missing required OpenAPI field
+- one invalid existing request field
+- deterministic field rename detection
+- local validation of the healed test
+- optional apply and GitHub Pull Request flows after validation
+
+The supported automatic-healing scenario is:
 
 ```text
 1 missing required OpenAPI field
 +
 1 invalid existing request field
 ```
+
+### Not Supported Yet
+
+- Postman collections
+- multiple simultaneous field repairs
+- nested object or array repairs
+- automatic CI pipeline integration
+- AI-generated patches
+- healing without local validation
 
 The tool stops when:
 
@@ -135,7 +130,7 @@ The tool stops when:
 
 A cautious tool may stop more often.
 
-A confident wrong tool can silently damage tests.
+A confident but incorrect tool can silently damage tests.
 
 ---
 
@@ -224,7 +219,15 @@ api-drift-healer heal --help
 
 ## Quick Start
 
-### 1. Start the mock API
+### 1. Install the CLI
+
+From the repository root:
+
+```bash
+python -m pip install -e .
+```
+
+### 2. Start the mock API
 
 Open the first terminal:
 
@@ -240,97 +243,56 @@ http://localhost:3000
 
 Keep this terminal open.
 
-### 2. Run the healer
+### 3. Preview the repair
 
-Open a second terminal.
-
-#### Dry-run mode
-
-Analyze the drift without creating or changing files:
+Open a second terminal in the repository root:
 
 ```bash
 api-drift-healer heal \
-  --test api_test_case.yaml \
-  --openapi openapi.yaml \
+  --test examples/basic_yaml/api_test_case.yaml \
+  --openapi examples/basic_yaml/openapi.yaml \
   --dry-run
 ```
 
 Expected result:
 
 ```text
-Mode: DRY RUN
+Original test: 400 FAIL
+Candidate: userEmail -> email_address
 Decision: SAFE PATCH
-No healed test, report, apply, or PR operation was performed.
+No files were changed.
 ```
 
-#### Default heal mode
-
-Generate a healed test file and explainability report without modifying the original test:
+### 4. Generate and validate the healed test
 
 ```bash
 api-drift-healer heal \
-  --test api_test_case.yaml \
-  --openapi openapi.yaml
+  --test examples/basic_yaml/api_test_case.yaml \
+  --openapi examples/basic_yaml/openapi.yaml \
+  --output examples/basic_yaml/api_test_case.healed.yaml
+```
+
+Expected validation result:
+
+```text
+Original test: 400 FAIL
+Healed test:   201 PASS
 ```
 
 Generated files:
 
 ```text
-api_test_case.healed.yaml
-heal_report.md
+examples/basic_yaml/api_test_case.healed.yaml
+examples/basic_yaml/heal_report.md
 ```
 
-#### Apply mode
+The original test file is not modified in the default heal mode.
 
-Apply the validated patch to the original test file:
+For `--apply`, `--create-pr`, and other options, see the CLI Options section below.
 
-```bash
-api-drift-healer heal \
-  --test api_test_case.yaml \
-  --openapi openapi.yaml \
-  --apply
-```
+A focused walkthrough is also available in:
 
-The original file is changed only after the healed test passes locally.
-
-#### Pull Request mode
-
-Apply the validated patch and continue to the secure GitHub Pull Request flow:
-
-```bash
-api-drift-healer heal \
-  --test api_test_case.yaml \
-  --openapi openapi.yaml \
-  --apply \
-  --create-pr
-```
-
-`--create-pr` requires `--apply`.
-
-PR mode also requires:
-
-- GitHub CLI installed
-- GitHub CLI authenticated
-- a Git repository
-- a configured remote
-- a clean working tree
-- a safe matcher decision
-- a locally passing healed test
-
-Authenticate GitHub CLI with:
-
-```bash
-gh auth login
-```
-
-#### Custom output path
-
-```bash
-api-drift-healer heal \
-  --test api_test_case.yaml \
-  --openapi openapi.yaml \
-  --output generated/custom-healed.yaml
-```
+[`examples/basic_yaml/README.md`](examples/basic_yaml/README.md)
 
 ---
 
@@ -395,6 +357,11 @@ api-drift-healer-demo/
 ├── api_drift_healer/
 │   ├── __init__.py
 │   └── cli.py
+├── examples/
+│   └── basic_yaml/
+│       ├── README.md
+│       ├── openapi.yaml
+│       └── api_test_case.yaml
 ├── mock_server.py
 ├── openapi.yaml
 ├── api_test_case.yaml
@@ -409,6 +376,8 @@ api-drift-healer-demo/
 ├── README.md
 └── .gitignore
 ```
+
+The files under `examples/basic_yaml/` provide the recommended runnable demo.
 
 Generated files such as `api_test_case.healed.yaml` and `heal_report.md` are ignored by Git.
 
