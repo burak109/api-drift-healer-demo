@@ -75,11 +75,6 @@ def heal(
         f"{test.stem}.healed{test.suffix}"
     )
 
-    if dry_run:
-        raise typer.BadParameter(
-            "--dry-run behavior will be implemented in the next V0.5 step."
-        )
-
     if apply_patch:
         raise typer.BadParameter(
             "--apply behavior will be implemented in the next V0.5 step."
@@ -99,6 +94,7 @@ def heal(
         healed_test_file=resolved_output,
         report_file=report_file,
         create_pr=False,
+        dry_run=dry_run,
     )
 
     raise typer.Exit(code=exit_code)

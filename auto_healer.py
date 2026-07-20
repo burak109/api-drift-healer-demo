@@ -112,6 +112,7 @@ def deterministic_heal(
     test_case_file=None,
     openapi_file=None,
     healed_test_file=None,
+    dry_run=False,
 ):
     test_case_file = test_case_file or TEST_CASE_FILE
     openapi_file = openapi_file or OPENAPI_FILE
@@ -203,6 +204,34 @@ def deterministic_heal(
             f"Confidence: {match_decision.confidence}"
         )
 
+        heal_result = {
+            "test_name": test_data.get(
+                "name",
+                "Unknown Test",
+            ),
+            "old_field": old_field,
+            "new_field": new_field,
+            "missing_required_fields": missing_required_fields,
+            "invalid_existing_fields": invalid_existing_fields,
+            "confidence": match_decision.confidence,
+            "confidence_reason": (
+                "The candidate field rename passed semantic, "
+                "type, and format checks with a score of "
+                f"{match_decision.score:.3f}, above the "
+                f"{match_decision.threshold:.3f} safety threshold."
+            ),
+            "match_score": match_decision.score,
+            "match_threshold": match_decision.threshold,
+            "match_reasons": list(match_decision.reasons),
+        }
+
+        if dry_run:
+            print(
+                "[DRY RUN] Safe patch candidate accepted. "
+                "No files were changed."
+            )
+            return heal_result
+
         request_body[new_field] = request_body.pop(old_field)
         test_data["body"] = request_body
 
@@ -223,26 +252,7 @@ def deterministic_heal(
             f"{healed_test_file}"
         )
 
-        return {
-            "test_name": test_data.get(
-                "name",
-                "Unknown Test",
-            ),
-            "old_field": old_field,
-            "new_field": new_field,
-            "missing_required_fields": missing_required_fields,
-            "invalid_existing_fields": invalid_existing_fields,
-            "confidence": match_decision.confidence,
-            "confidence_reason": (
-                "The candidate field rename passed semantic, "
-                "type, and format checks with a score of "
-                f"{match_decision.score:.3f}, above the "
-                f"{match_decision.threshold:.3f} safety threshold."
-            ),
-            "match_score": match_decision.score,
-            "match_threshold": match_decision.threshold,
-            "match_reasons": list(match_decision.reasons),
-        }
+        return heal_result
 
     print(
         "[!] Complex or multiple drift situation. "
@@ -368,9 +378,9 @@ def create_secure_pr(
         return
 
     shutil.copyfile(
-    healed_test_file,
-    test_case_file,
-)
+        healed_test_file,
+        test_case_file,
+    )
 
     print(f"[*] Committing and pushing changes to branch '{branch_name}'...")
 
@@ -431,6 +441,7 @@ def run_healer(
     healed_test_file=HEALED_TEST_FILE,
     report_file=HEAL_REPORT_FILE,
     create_pr=False,
+    dry_run=False,
 ):
     """
     Runs the complete API drift healing flow.
@@ -449,11 +460,12 @@ def run_healer(
         "(SAFE SMART FIELD MATCHING) ==="
     )
 
-    if os.path.exists(healed_test_file):
-        os.remove(healed_test_file)
+    if not dry_run:
+        if os.path.exists(healed_test_file):
+            os.remove(healed_test_file)
 
-    if os.path.exists(report_file):
-        os.remove(report_file)
+        if os.path.exists(report_file):
+            os.remove(report_file)
 
     print("\n[1] Running the original test case...")
 
@@ -472,6 +484,7 @@ def run_healer(
         test_case_file=test_case_file,
         openapi_file=openapi_file,
         healed_test_file=healed_test_file,
+        dry_run=dry_run,
     )
 
     if not heal_result:
@@ -483,6 +496,30 @@ def run_healer(
 
     old_field = heal_result["old_field"]
     new_field = heal_result["new_field"]
+    
+    if dry_run:
+        print("\n[DRY RUN] Analysis completed successfully.")
+        print(
+            f"[DRY RUN] Candidate: "
+            f"'{old_field}' -> '{new_field}'"
+        )
+        print(
+            f"[DRY RUN] Score: "
+            f"{heal_result['match_score']:.3f}"
+        )
+        print(
+            f"[DRY RUN] Threshold: "
+            f"{heal_result['match_threshold']:.3f}"
+        )
+        print(
+            f"[DRY RUN] Decision: SAFE PATCH"
+        )
+        print(
+            "[DRY RUN] No healed test, report, apply, "
+            "or PR operation was performed."
+        )
+
+        return 0
 
     print(
         "\n[3] Automatically validating "
@@ -561,13 +598,10 @@ def main():
         healed_test_file=HEALED_TEST_FILE,
         report_file=HEAL_REPORT_FILE,
         create_pr=CREATE_PR,
+        dry_run=False,
     )
 
     raise SystemExit(exit_code)
-
-
-if __name__ == "__main__":
-    main()
 
 
 if __name__ == "__main__":
