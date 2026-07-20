@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "api-drift-healer"
+version = "0.5.0"
+description = "A local-first CLI for detecting and safely healing API contract drift."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "Flask",
+    "requests",
+    "PyYAML",
+    "typer",
+]
+
+[project.scripts]
+api-drift-healer = "api_drift_healer.cli:app"
+
+[tool.setuptools]
+py-modules = [
+    "auto_healer",
+    "field_matcher",
+    "test_runner",
+    "mock_server",
+]
+
+[tool.setuptools.packages.find]
+include = ["api_drift_healer*"]

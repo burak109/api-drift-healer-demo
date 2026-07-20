@@ -12,3 +12,7 @@ pr_description.md
 
 # OS files
 .DS_Store
+# Python package build artifacts
+*.egg-info/
+build/
+dist/
