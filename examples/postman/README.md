@@ -1,6 +1,6 @@
 # Postman Collection Example
 
-This example represents the first Postman adapter scenario for API Drift Healer.
+This example shows how API Drift Healer repairs a simple field rename inside a Postman Collection v2.1 file.
 
 ## Scenario
 
@@ -15,11 +15,14 @@ The Postman request named `Create User` sends:
 
 The OpenAPI contract for `POST /users` requires:
 
-```text
-email_address
+```json
+{
+  "name": "Test User",
+  "email_address": "qa_user@example.com"
+}
 ```
 
-The expected safe field repair is:
+The safe repair is:
 
 ```text
 userEmail -> email_address
@@ -34,40 +37,67 @@ examples/postman/
 └── README.md
 ```
 
-## Inspect the Normalized Request
+## Dry Run
 
-Run from the repository root:
+From the repository root:
 
 ```bash
-python - <<'PY'
-from api_drift_healer.adapters.postman import (
-    normalize_postman_request_file,
-)
-
-request = normalize_postman_request_file(
-    collection_path=(
-        "examples/postman/"
-        "create-user.postman_collection.json"
-    ),
-    request_name="Create User",
-)
-
-print(f"Name:   {request.name}")
-print(f"Method: {request.method}")
-print(f"Path:   {request.path}")
-print(f"Body:   {request.body}")
-PY
+api-drift-healer postman heal \
+  --collection examples/postman/create-user.postman_collection.json \
+  --request "Create User" \
+  --openapi examples/postman/openapi.yaml \
+  --dry-run
 ```
 
-Expected result:
+Expected decision:
 
 ```text
-Name:   Create User
-Method: POST
-Path:   /users
-Body:   {'name': 'Test User', 'userEmail': 'qa_user@example.com'}
+Decision: SAFE_PATCH
+Candidate: userEmail -> email_address
+Score: 0.772
+Threshold: 0.700
+Confidence: High
 ```
 
-At this stage, the Postman adapter reads and normalizes the request.
+Dry-run displays the diff but does not create a file.
 
-Collection patching and validation will be connected in the next V1 steps.
+## Generate a Healed Collection
+
+```bash
+api-drift-healer postman heal \
+  --collection examples/postman/create-user.postman_collection.json \
+  --request "Create User" \
+  --openapi examples/postman/openapi.yaml \
+  --output create-user.healed.postman_collection.json
+```
+
+The original collection is preserved.
+
+## Run the Complete Demo
+
+```bash
+./scripts/demo_postman.sh
+```
+
+The script performs the dry-run, writes a temporary healed collection, validates its JSON, compares the old and new request bodies, and removes the temporary output.
+
+## Current Scope
+
+Supported:
+
+- Postman Collection v2.1
+- nested folders
+- exact request names
+- raw JSON object bodies
+- one top-level field rename
+- exact OpenAPI path and method matching
+
+Not yet supported:
+
+- form-data
+- URL-encoded bodies
+- GraphQL
+- nested repairs
+- multiple repairs
+- referenced or composed OpenAPI schemas
+- Newman runtime validation

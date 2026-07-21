@@ -1,4 +1,4 @@
-"""Deterministic field matching helpers for API Drift Healer V0.4."""
+"""Deterministic field matching helpers for API Drift Healer."""
 
 from __future__ import annotations
 

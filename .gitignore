@@ -16,3 +16,6 @@ pr_description.md
 *.egg-info/
 build/
 dist/
+
+# Generated Postman collections
+*.healed.postman_collection.json

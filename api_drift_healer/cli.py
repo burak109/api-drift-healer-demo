@@ -115,7 +115,7 @@ def heal(
     else:
         mode = "HEAL"
 
-    typer.echo("API Drift Healer V0.6 CLI")
+    typer.echo("API Drift Healer V1.0 YAML CLI")
     typer.echo(f"Test file: {test}")
     typer.echo(f"OpenAPI file: {openapi}")
     typer.echo(f"Output file: {resolved_output}")
@@ -182,7 +182,7 @@ def heal_postman(
 
     mode = "DRY RUN" if dry_run else "HEAL"
 
-    typer.echo("API Drift Healer V1 Postman CLI")
+    typer.echo("API Drift Healer V1.0 Postman CLI")
     typer.echo(f"Collection: {collection}")
     typer.echo(f"Request: {request_name}")
     typer.echo(f"OpenAPI: {openapi}")

@@ -1,14 +1,130 @@
 # API Drift Healer 🛠️
 
-**Current release: V0.6 — Product Polish, Runnable Example, and Demo**
+**Current release: V1.0 — Postman Adapter**
 
-Detect OpenAPI contract drift.
+API Drift Healer detects request-field drift between OpenAPI contracts and API tests.
 
-Heal outdated YAML API tests.
+It currently supports:
 
-Validate every proposed repair locally.
+- YAML API test cases
+- Postman Collection v2.1 files
+- deterministic field matching
+- safe patch decisions
+- human-readable diffs
+- separate healed output files
+- dry-run analysis
 
-Optionally apply the validated fix or open a human-reviewable GitHub Pull Request.
+The main example is simple:
+
+```text
+OpenAPI requires:  email_address
+Test still sends:  userEmail
+
+Safe repair:
+userEmail -> email_address
+```
+
+The matching decision is deterministic. No LLM decides whether a patch is safe.
+
+---
+
+## Postman Adapter
+
+V1 can read a Postman collection, locate one request, compare its raw JSON body with OpenAPI, and generate a patched collection.
+
+```text
+Postman collection
+        ↓
+Normalized request
+        ↓
+OpenAPI path and method resolver
+        ↓
+Deterministic drift analyzer
+        ↓
+Safe field patch
+        ↓
+Diff
+        ↓
+Healed Postman collection
+```
+
+### Dry Run
+
+```bash
+api-drift-healer postman heal \
+  --collection examples/postman/create-user.postman_collection.json \
+  --request "Create User" \
+  --openapi examples/postman/openapi.yaml \
+  --dry-run
+```
+
+Expected result:
+
+```text
+Decision: SAFE_PATCH
+Candidate: userEmail -> email_address
+Score: 0.772
+Threshold: 0.700
+Confidence: High
+```
+
+The CLI also displays a field-level diff:
+
+```diff
+ {
+   "name": "Test User",
+-  "userEmail": "qa_user@example.com"
++  "email_address": "qa_user@example.com"
+ }
+```
+
+Dry-run does not write any files.
+
+### Generate a Healed Collection
+
+```bash
+api-drift-healer postman heal \
+  --collection examples/postman/create-user.postman_collection.json \
+  --request "Create User" \
+  --openapi examples/postman/openapi.yaml \
+  --output create-user.healed.postman_collection.json
+```
+
+The original collection is preserved.
+
+The generated collection contains:
+
+```json
+{
+  "name": "Test User",
+  "email_address": "qa_user@example.com"
+}
+```
+
+### One-Command Postman Demo
+
+```bash
+./scripts/demo_postman.sh
+```
+
+The demo:
+
+1. reads the outdated Postman request
+2. resolves `POST /users` from OpenAPI
+3. detects `userEmail -> email_address`
+4. shows the safe patch decision
+5. displays the body diff
+6. creates a temporary healed collection
+7. validates the generated JSON
+8. verifies that the original collection was preserved
+
+No server is required for this structural Postman demo.
+
+---
+
+## YAML Healing Flow
+
+The existing YAML flow is still supported.
 
 ```text
 400 FAIL
@@ -22,265 +138,13 @@ OPTIONAL APPLY OR PR
 
 > **Golden Rule: No PASS, no apply. No PASS, no PR.**
 
-## What It Does
-
-API Drift Healer compares an OpenAPI contract with a YAML API test case and detects outdated request fields.
-
-It:
-
-- runs the original API test
-- detects a possible field rename
-- rejects ambiguous or unsafe matches
-- generates a healed test case
-- reruns the healed test locally
-- allows apply or PR operations only after validation passes
-
-## Basic Example
-
-The OpenAPI contract requires:
-
-```text
-email_address
-```
-
-But the test still sends:
-
-```text
-userEmail
-```
-
-API Drift Healer proposes:
-
-```text
-userEmail -> email_address
-```
-
-And validates the result:
-
-```text
-Original test: 400 FAIL
-Healed test:   201 PASS
-```
-
-A complete runnable example is available here:
-
-[`examples/basic_yaml`](examples/basic_yaml/README.md)
-
----
-
-## Demo
-
-<p align="center">
-  <img src="assets/api-drift-healer-v06-demo.gif" alt="API Drift Healer V0.6 demo showing a failing YAML API test, safe field repair, and passing validation">
-</p>
-
-Run the complete local demo with one command:
-
-```bash
-./scripts/demo_basic_yaml.sh
-```
-
-The demo:
-
-1. starts the local mock API
-2. runs the original failing test
-3. detects `userEmail -> email_address`
-4. previews the repair in dry-run mode
-5. generates the healed YAML test
-6. validates the healed test locally
-7. displays the final field-level diff
-8. removes generated demo files after completion
-
-Expected result:
-
-```text
-Original test : 400 FAIL
-Safe patch    : userEmail -> email_address
-Healed test   : 201 PASS
-```
-
-> The script stops if port `3000` is already in use or the mock API cannot start.
-
----
-
-## What V0.5 Adds
-
-V0.5 turns the prototype into an installable command-line tool.
-
-It adds:
-
-- a Typer-based CLI
-- `--test` and `--openapi` file arguments
-- optional custom output paths
-- a real `--dry-run` mode
-- a validated `--apply` mode
-- `--create-pr` flag validation
-- reusable healer execution logic
-- installable `api-drift-healer` command
-- CLI test coverage
-- support for running outside the repository directory with absolute paths
-
----
-
-## Current Limitations
-
-API Drift Healer intentionally supports a narrow and cautious healing scope.
-
-### Currently Supported
-
-- YAML API test cases
-- one missing required OpenAPI field
-- one invalid existing request field
-- deterministic field rename detection
-- local validation of the healed test
-- optional apply and GitHub Pull Request flows after validation
-
-The supported automatic-healing scenario is:
-
-```text
-1 missing required OpenAPI field
-+
-1 invalid existing request field
-```
-
-### Not Supported Yet
-
-- Postman collections
-- multiple simultaneous field repairs
-- nested object or array repairs
-- automatic CI pipeline integration
-- AI-generated patches
-- healing without local validation
-
-The tool stops when:
-
-- multiple required fields are missing
-- multiple invalid request fields exist
-- the candidate mapping is ambiguous
-- semantic qualifiers conflict
-- OpenAPI type or format checks fail
-- the score is below the safety threshold
-- a hard safety conflict is detected
-- the healed test does not pass
-
-A cautious tool may stop more often.
-
-A confident but incorrect tool can silently damage tests.
-
----
-
-## Example Safe Matches
-
-```text
-userEmail   -> email_address
-phoneNumber -> phone_number
-legacyCode  -> legacy_code
-```
-
-These candidates may be accepted when their semantic, type, format, and safety checks agree.
-
----
-
-## Example Rejected Matches
-
-```text
-displayName -> email_address
-firstName   -> last_name
-userId      -> customer_id
-```
-
-Common rejection reasons:
-
-- no shared semantic concept
-- incompatible OpenAPI type
-- incompatible OpenAPI format
-- conflicting qualifiers
-- no strong matching anchor
-- score below the safety threshold
-- hard safety conflict
-
----
-
-## Installation
-
-### Requirements
-
-- Python 3.10 or newer
-- GitHub CLI only for Pull Request mode
-
-Clone the repository:
-
-```bash
-git clone https://github.com/burak109/api-drift-healer-demo.git
-cd api-drift-healer-demo
-```
-
-Create and activate a virtual environment.
-
-### macOS / Linux
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-### Windows PowerShell
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
-
-Install the project in editable mode:
-
-```bash
-python -m pip install -e .
-```
-
-This installs the project dependencies and creates the command:
-
-```text
-api-drift-healer
-```
-
-Verify the installation:
-
-```bash
-api-drift-healer --help
-api-drift-healer heal --help
-```
-
----
-
-## Quick Start
-
-### 1. Install the CLI
-
-From the repository root:
-
-```bash
-python -m pip install -e .
-```
-
-### 2. Start the mock API
-
-Open the first terminal:
+Start the local mock API:
 
 ```bash
 python mock_server.py
 ```
 
-The demo server runs at:
-
-```text
-http://localhost:3000
-```
-
-Keep this terminal open.
-
-### 3. Preview the repair
-
-Open a second terminal in the repository root:
+In another terminal, preview the YAML repair:
 
 ```bash
 api-drift-healer heal \
@@ -289,16 +153,7 @@ api-drift-healer heal \
   --dry-run
 ```
 
-Expected result:
-
-```text
-Original test: 400 FAIL
-Candidate: userEmail -> email_address
-Decision: SAFE PATCH
-No files were changed.
-```
-
-### 4. Generate and validate the healed test
+Generate and validate the healed YAML test:
 
 ```bash
 api-drift-healer heal \
@@ -307,81 +162,199 @@ api-drift-healer heal \
   --output examples/basic_yaml/api_test_case.healed.yaml
 ```
 
-Expected validation result:
+Run the full YAML demo:
 
-```text
-Original test: 400 FAIL
-Healed test:   201 PASS
+```bash
+./scripts/demo_basic_yaml.sh
 ```
 
-Generated files:
-
-```text
-examples/basic_yaml/api_test_case.healed.yaml
-examples/basic_yaml/heal_report.md
-```
-
-The original test file is not modified in the default heal mode.
-
-For `--apply`, `--create-pr`, and other options, see the CLI Options section below.
-
-A focused walkthrough is also available in:
-
-[`examples/basic_yaml/README.md`](examples/basic_yaml/README.md)
+The YAML flow runs the original request and the healed request against the local mock API.
 
 ---
 
-## CLI Options
+## Installation
+
+API Drift Healer requires Python 3.10 or newer.
+
+### macOS / Linux
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e .
+```
+
+### Windows PowerShell
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e .
+```
+
+Verify the CLI:
+
+```bash
+api-drift-healer --help
+api-drift-healer heal --help
+api-drift-healer postman heal --help
+```
+
+---
+
+## Postman CLI Options
 
 ```text
---test       Path to the YAML API test file. Required.
---openapi    Path to the OpenAPI contract file. Required.
---output     Custom path for the generated healed test file.
---dry-run    Analyze drift without writing files.
---apply      Apply the validated patch to the original test file.
---create-pr  Open a Pull Request after a validated apply.
+--collection  Postman Collection v2.1 JSON file. Required.
+--request     Exact Postman request name. Required.
+--openapi     OpenAPI YAML or JSON file. Required.
+--output      Path for the healed collection.
+--dry-run     Show the decision and diff without writing.
+--overwrite   Replace an existing output file.
+```
+
+Exit codes:
+
+```text
+0  Safe patch generated, dry-run succeeded, or no drift found
+1  Patch rejected or drift is too complex
+2  Invalid input, unsupported format, or unsafe output path
+```
+
+---
+
+## YAML CLI Options
+
+```text
+--test       YAML API test file. Required.
+--openapi    OpenAPI contract file. Required.
+--output     Path for the generated healed YAML test.
+--dry-run    Analyze without writing files.
+--apply      Apply a validated patch to the original test.
+--create-pr  Open a Pull Request after validated apply.
 ```
 
 Invalid combinations are rejected:
 
 ```text
 --dry-run + --apply
+--dry-run + --create-pr
 --create-pr without --apply
 ```
 
 ---
 
-## Workflow
+## Safety Rules
+
+API Drift Healer only accepts a field repair when:
+
+- exactly one required OpenAPI field is missing
+- exactly one unknown request field exists
+- field-name similarity is strong enough
+- semantic concepts are compatible
+- value type matches the OpenAPI type
+- detected value format matches the OpenAPI format
+- no hard qualifier conflict is found
+- the score reaches the `0.700` safety threshold
+
+Examples:
 
 ```text
-Original test runs
-        ↓
-Original test FAILS
-        ↓
-OpenAPI schema is loaded
-        ↓
-Missing and invalid fields are identified
-        ↓
-Candidate rename is evaluated
-        ↓
-SAFE PATCH or REJECT
-        ↓
-Healed test is generated only if safe
-        ↓
-Healed test runs locally
-        ↓
-Healed test PASSES
-        ↓
-heal_report.md is generated
-        ↓
-Optional validated apply
-        ↓
-Optional GitHub Pull Request
-        ↓
-Human review
+userEmail -> email_address   SAFE
+displayName -> email_address REJECT
+firstName -> last_name       REJECT
 ```
 
-The tool never treats patch generation alone as success.
+For Postman collections:
+
+```text
+No safe match, no output file.
+```
+
+For YAML tests:
+
+```text
+No PASS, no apply.
+No PASS, no PR.
+```
+
+---
+
+## Currently Supported
+
+### Postman
+
+- Postman Collection v2.1
+- nested collection folders
+- exact request-name selection
+- raw JSON object bodies
+- URL strings
+- Postman URL objects
+- base URL variables such as `{{baseUrl}}/users`
+- exact OpenAPI path and HTTP method matching
+- one top-level field rename
+- dry-run analysis
+- unified body diff
+- separate healed collection output
+- overwrite protection
+
+### YAML
+
+- local YAML API test cases
+- request execution against a local API
+- safe deterministic field matching
+- healed test generation
+- local validation
+- explainability reports
+- optional validated apply
+- optional GitHub Pull Request flow
+
+---
+
+## Current Limitations
+
+The V1 Postman adapter does not currently support:
+
+- form-data bodies
+- URL-encoded bodies
+- GraphQL bodies
+- XML bodies
+- JavaScript-generated request bodies
+- nested JSON field repairs
+- multiple field repairs in one request
+- OpenAPI `$ref` request schemas
+- `allOf`, `oneOf`, or `anyOf` schemas
+- fuzzy OpenAPI path-template matching
+- Newman runtime validation
+- automatic Postman Pull Request creation
+
+Newman validation is planned as the next Postman milestone.
+
+The generated collection is currently validated as JSON and checked through the normalized request model. It is not yet executed against a live API by Newman.
+
+---
+
+## Architecture
+
+```text
+Input Adapter
+    ↓
+NormalizedRequest
+    ↓
+OpenAPI Resolver
+    ↓
+ResolvedRequestSchema
+    ↓
+Drift Analyzer
+    ↓
+SAFE_PATCH / REJECTED / NO_DRIFT / COMPLEX_DRIFT
+    ↓
+Format-specific Patcher
+```
+
+The core analyzer does not depend on Postman or YAML.
+
+This makes it possible to add other adapters later without rebuilding the safety engine.
 
 ---
 
@@ -390,303 +363,124 @@ The tool never treats patch generation alone as success.
 ```text
 api-drift-healer-demo/
 ├── api_drift_healer/
+│   ├── adapters/
+│   │   ├── __init__.py
+│   │   └── postman.py
 │   ├── __init__.py
-│   └── cli.py
-├── assets/
-│   └── api-drift-healer-v06-demo.gif
+│   ├── cli.py
+│   ├── drift_analyzer.py
+│   ├── models.py
+│   ├── openapi_resolver.py
+│   └── postman_healer.py
 ├── examples/
-│   └── basic_yaml/
+│   ├── basic_yaml/
+│   │   ├── README.md
+│   │   ├── api_test_case.yaml
+│   │   └── openapi.yaml
+│   └── postman/
 │       ├── README.md
-│       ├── openapi.yaml
-│       └── api_test_case.yaml
+│       ├── create-user.postman_collection.json
+│       └── openapi.yaml
 ├── scripts/
-│   └── demo_basic_yaml.sh
-├── mock_server.py
-├── openapi.yaml
-├── api_test_case.yaml
-├── test_runner.py
+│   ├── demo_basic_yaml.sh
+│   └── demo_postman.sh
 ├── auto_healer.py
 ├── field_matcher.py
-├── test_field_matcher.py
-├── test_auto_healer.py
-├── test_cli.py
+├── mock_server.py
+├── test_runner.py
 ├── pyproject.toml
-├── requirements.txt
-├── README.md
-└── .gitignore
+└── README.md
 ```
-
-The files under `examples/basic_yaml/` provide the recommended runnable demo.
-
-Generated files such as `api_test_case.healed.yaml` and `heal_report.md` are ignored by Git.
-
----
-
-## Core Files
-
-### `api_drift_healer/cli.py`
-
-The Typer command-line interface.
-
-It:
-
-- validates CLI arguments
-- resolves input and output paths
-- selects the execution mode
-- rejects unsafe flag combinations
-- calls the reusable healer engine
-- returns the engine exit code
-
-### `auto_healer.py`
-
-The orchestration layer.
-
-It:
-
-- runs the original test
-- loads the OpenAPI schema
-- identifies candidate drift
-- calls the deterministic matcher
-- generates the healed test
-- validates the healed test
-- creates the report
-- optionally applies the validated patch
-- optionally starts the Pull Request flow
-
-### `field_matcher.py`
-
-The deterministic safety engine.
-
-It performs:
-
-- field-name normalization
-- semantic concept extraction
-- qualifier conflict detection
-- value-type detection
-- value-format detection
-- OpenAPI type compatibility checks
-- OpenAPI format compatibility checks
-- string similarity calculation
-- deterministic weighted scoring
-- hard conflict rejection
-
-The current safety threshold is:
-
-```text
-0.700
-```
-
-### `test_runner.py`
-
-A small YAML-based API test runner.
-
-It loads a test case, sends the configured request, and compares the actual status with the expected status.
-
-### `mock_server.py`
-
-A local Flask API used by the demo.
-
-It exposes:
-
-```text
-POST /users
-```
-
-The server expects `email_address` and returns `400` when the field is missing.
-
----
-
-## Explainability Report
-
-After a successful validated heal, the tool generates:
-
-```text
-heal_report.md
-```
-
-The report includes:
-
-- root cause
-- candidate field rename
-- applied fix
-- original test result
-- healed test result
-- match score
-- safety threshold
-- confidence
-- matching evidence
-- conflict reasons
-- involved files
-- safety statement
-
-Example summary:
-
-```text
-Root cause:
-OpenAPI requires email_address, but the test sends userEmail.
-
-Applied fix:
-userEmail -> email_address
-
-Validation:
-Original test: 400 FAIL
-Healed test: 201 PASS
-
-Decision:
-SAFE PATCH
-```
-
----
-
-## Pull Request Safety
-
-The Pull Request workflow follows these rules:
-
-```text
-No PASS, no PR.
-No direct push to main.
-No blind overwrite.
-No auto-merge.
-Human review stays in the loop.
-```
-
-The tool checks for a clean working tree before creating a branch.
-
-This prevents unrelated local changes from being mixed into the generated fix.
-
-The bot opens a reviewable Pull Request but does not merge it.
 
 ---
 
 ## Automated Tests
 
-Run the complete test suite:
+Run all tests:
 
 ```bash
-python -m unittest -v \
-  test_field_matcher.py \
-  test_auto_healer.py \
-  test_cli.py
+python -m unittest discover
 ```
 
-Current suite:
+Current V1 test suite:
 
 ```text
-45 matcher unit tests
-+
-3 healer integration tests
-+
-8 CLI tests
-=
-56 automated tests
+124 automated tests
 ```
 
-Expected result:
+Coverage includes:
 
-```text
-Ran 56 tests
-
-OK
-```
-
-The CLI tests cover:
-
-- main help output
-- required CLI options
-- invalid flag combinations
-- default heal mode
-- dry-run mode
-- apply mode
-- custom output forwarding
-- engine argument forwarding
+- field normalization and semantic matching
+- OpenAPI type and format checks
+- hard conflict rejection
+- normalized request models
+- Postman collection parsing
+- nested Postman folders
+- OpenAPI endpoint resolution
+- format-independent drift analysis
+- safe Postman body patching
+- healed collection writing
+- overwrite protection
+- Postman service flow
+- Postman CLI behavior
+- YAML CLI backward compatibility
+- one-command demo scripts
+- original-file preservation
 
 ---
 
 ## Current Status
 
 ```text
-V0     ✅ Core local heal proof
-V0.1   ✅ One-command FAIL -> HEAL -> PASS flow
-V0.2   ✅ Secure PR flow after local validation
-V0.3   ✅ Explainability report generation
-V0.3.1 ✅ CREATE_PR toggle and clean working tree guard
-V0.4   ✅ Safe smart field matching
-V0.4   ✅ Semantic, qualifier, type, and format checks
-V0.4   ✅ Deterministic scoring and hard conflict rejection
-V0.4   ✅ 48 automated tests
-V0.5   ✅ Installable Typer CLI
-V0.5   ✅ File path arguments
-V0.5   ✅ Dry-run mode
-V0.5   ✅ Validated apply mode
-V0.5   ✅ CLI flag validation
-V0.5   ✅ Custom output support
-V0.5   ✅ 56 automated tests
-V0.6   ✅ Basic YAML example
-V0.6   ✅ Simplified Quick Start
-V0.6   ✅ Documented current limitations
-V0.6   ✅ One-command demo script
-V0.6   ✅ Product-ready README
+V0.4 ✅ Deterministic smart field matching
+V0.5 ✅ Installable Typer CLI
+V0.6 ✅ Runnable YAML example and one-command demo
+
+V1.0 ✅ Format-independent request model
+V1.0 ✅ Postman Collection v2.1 parser
+V1.0 ✅ Nested request discovery
+V1.0 ✅ OpenAPI path and method resolver
+V1.0 ✅ Format-independent drift analyzer
+V1.0 ✅ Safe Postman body patcher
+V1.0 ✅ Healed collection writer
+V1.0 ✅ Postman dry-run and diff
+V1.0 ✅ Postman CLI
+V1.0 ✅ One-command Postman demo
+V1.0 ✅ 124 automated tests
 ```
 
 ---
 
 ## Roadmap
 
-### V1 — Postman Adapter
+### V1.1 — Newman Validation
 
-Support Postman collections.
+- optionally run the original collection with Newman
+- run the healed collection after a safe patch
+- require a passing Newman result before validated apply or PR workflows
+- support Postman environment files
 
-Target flow:
+### V1.2 — VS Code `.http` Adapter
 
-```text
-Postman collection
-        ↓
-Normalized internal test model
-        ↓
-Core drift engine
-        ↓
-Patched Postman collection
-```
+- parse REST Client request files
+- normalize JSON request bodies
+- generate reviewable patches
 
-### V1.1 — VS Code `.http` Adapter
+### V1.3 — Pytest / Requests Adapter
 
-Support REST Client and `.http` request files.
-
-### V1.2 — Pytest / Requests Adapter
-
-Detect outdated payload fields inside Python API tests.
-
-Initial goals:
-
-- locate simple request payload dictionaries
-- associate payloads with request URLs and methods
-- generate suggested patches
+- locate simple Python request payloads
+- associate payloads with URLs and methods
 - preserve surrounding test logic
-- reject risky automatic rewrites
+- reject risky rewrites
 
-### V2 — GitHub Actions Integration
+### V2 — CI Integration
 
-Run API Drift Healer inside CI.
-
-Possible flow:
-
-```text
-CI test fails
-        ↓
-API Drift Healer reads OpenAPI
-        ↓
-Candidate patch is evaluated
-        ↓
-Healed test passes
-        ↓
-Bot opens a PR or comments on an existing PR
-```
+- run inside GitHub Actions
+- react to failed API tests
+- generate reports or Pull Requests
+- keep human review before merge
 
 ### V3 — Local LLM Explanation Layer
-
-A local LLM may help explain deterministic decisions later.
-
-Planned rule:
 
 ```text
 Deterministic code decides.
@@ -695,7 +489,7 @@ AI explains.
 Humans review.
 ```
 
-The LLM would not be trusted as the patch engine.
+An LLM will not be trusted as the patch engine.
 
 ---
 
@@ -705,34 +499,9 @@ API Drift Healer is not:
 
 - a complete API testing platform
 - a replacement for QA engineers
-- a production-ready enterprise product
-- a universal test-repair system
 - a blind AI auto-fix bot
+- a universal test-repair system
 - a tool that automatically merges changes
-- a guarantee that every API drift can be healed
+- a guarantee that every drift can be repaired
 
-It is a focused local-first prototype for one specific problem:
-
-> API contract drift breaking API tests.
-
----
-
-## Why Local-First?
-
-The current prototype runs locally.
-
-It does not require:
-
-- cloud payload sharing
-- OpenAI API access
-- remote test-data processing
-- external AI services
-- API keys for local analysis
-
-GitHub authentication is only required for Pull Request mode.
-
----
-
-## License
-
-MIT
+It is a focused local-first tool for safely handling simple API contract drift.

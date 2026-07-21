@@ -583,8 +583,8 @@ def run_healer(
     report_file = str(report_path)
 
     print(
-        "=== API DRIFT HEALER V0.6 "
-        "(CLI HEALING FLOW) ==="
+        "=== API DRIFT HEALER V1.0 "
+        "(YAML HEALING FLOW) ==="
     )
 
     if not dry_run:
