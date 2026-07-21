@@ -70,6 +70,10 @@ A complete runnable example is available here:
 
 ## Demo
 
+<p align="center">
+  <img src="assets/api-drift-healer-v06-demo.gif" alt="API Drift Healer V0.6 demo showing a failing YAML API test, safe field repair, and passing validation">
+</p>
+
 Run the complete local demo with one command:
 
 ```bash
@@ -388,6 +392,8 @@ api-drift-healer-demo/
 ├── api_drift_healer/
 │   ├── __init__.py
 │   └── cli.py
+├── assets/
+│   └── api-drift-healer-v06-demo.gif
 ├── examples/
 │   └── basic_yaml/
 │       ├── README.md
