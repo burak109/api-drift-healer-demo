@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
 import json
 import re
 from pathlib import Path
@@ -312,3 +314,78 @@ def _extract_json_body(
         )
 
     return parsed_body
+
+
+
+def patch_postman_request_body(
+    collection: dict[str, Any],
+    request_name: str,
+    old_field: str,
+    new_field: str,
+) -> dict[str, Any]:
+    """Return a copied collection with one safely renamed body field."""
+
+    old_field = old_field.strip()
+    new_field = new_field.strip()
+
+    if not old_field or not new_field:
+        raise PostmanAdapterError(
+            "Patch field names cannot be empty."
+        )
+
+    if old_field == new_field:
+        raise PostmanAdapterError(
+            "Old and new field names must be different."
+        )
+
+    patched_collection = deepcopy(collection)
+    _validate_collection_version(patched_collection)
+
+    item = _find_request_item(
+        collection=patched_collection,
+        request_name=request_name,
+    )
+
+    request = item.get("request")
+
+    if not isinstance(request, dict):
+        raise PostmanAdapterError(
+            f"Postman item '{request_name}' has no valid request."
+        )
+
+    parsed_body = _extract_json_body(
+        request=request,
+        request_name=request_name,
+    )
+
+    if old_field not in parsed_body:
+        raise PostmanAdapterError(
+            f"Field '{old_field}' was not found in request "
+            f"'{request_name}'."
+        )
+
+    if new_field in parsed_body:
+        raise PostmanAdapterError(
+            f"Field '{new_field}' already exists in request "
+            f"'{request_name}'."
+        )
+
+    patched_body = {
+        new_field if field == old_field else field: value
+        for field, value in parsed_body.items()
+    }
+
+    body_container = request.get("body")
+
+    if not isinstance(body_container, dict):
+        raise PostmanAdapterError(
+            f"Postman request '{request_name}' has no valid body."
+        )
+
+    body_container["raw"] = json.dumps(
+        patched_body,
+        ensure_ascii=False,
+        indent=2,
+    )
+
+    return patched_collection
