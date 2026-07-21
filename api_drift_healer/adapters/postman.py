@@ -389,3 +389,80 @@ def patch_postman_request_body(
     )
 
     return patched_collection
+
+
+
+def default_healed_collection_path(
+    collection_path: str | Path,
+) -> Path:
+    """Build a default output path for a healed Postman collection."""
+
+    source_path = Path(collection_path)
+
+    suffix = ".postman_collection.json"
+
+    if source_path.name.endswith(suffix):
+        base_name = source_path.name.removesuffix(suffix)
+        output_name = (
+            f"{base_name}.healed.postman_collection.json"
+        )
+    else:
+        output_name = (
+            f"{source_path.stem}.healed"
+            f"{source_path.suffix or '.json'}"
+        )
+
+    return source_path.with_name(output_name)
+
+
+def write_postman_collection(
+    collection: dict[str, Any],
+    output_path: str | Path,
+    *,
+    overwrite: bool = False,
+) -> Path:
+    """Write a Postman collection to a JSON file safely."""
+
+    if not isinstance(collection, dict):
+        raise PostmanAdapterError(
+            "Postman collection root must be a JSON object."
+        )
+
+    _validate_collection_version(collection)
+
+    target_path = Path(output_path).expanduser()
+
+    if target_path.exists() and not overwrite:
+        raise PostmanAdapterError(
+            f"Output file already exists: {target_path}"
+        )
+
+    target_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    temporary_path = target_path.with_name(
+        f".{target_path.name}.api-drift-healer.tmp"
+    )
+
+    try:
+        temporary_path.write_text(
+            json.dumps(
+                collection,
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        temporary_path.replace(target_path)
+    except OSError as exc:
+        temporary_path.unlink(missing_ok=True)
+
+        raise PostmanAdapterError(
+            f"Could not write Postman collection: {target_path}"
+        ) from exc
+
+    return target_path
