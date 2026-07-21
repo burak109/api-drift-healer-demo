@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,3 +115,32 @@ class ResolvedRequestSchema:
             "properties",
             copied_properties,
         )
+
+
+
+DriftDecision = Literal[
+    "NO_DRIFT",
+    "SAFE_PATCH",
+    "REJECTED",
+    "COMPLEX_DRIFT",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class DriftAnalysisResult:
+    """Format-independent result produced by the drift analyzer."""
+
+    decision: DriftDecision
+    request_name: str
+    missing_required_fields: tuple[str, ...]
+    invalid_existing_fields: tuple[str, ...]
+    old_field: str | None = None
+    new_field: str | None = None
+    score: float | None = None
+    threshold: float | None = None
+    confidence: str | None = None
+    reasons: tuple[str, ...] = ()
+
+    @property
+    def safe_to_patch(self) -> bool:
+        return self.decision == "SAFE_PATCH"
