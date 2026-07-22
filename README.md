@@ -1,6 +1,6 @@
 # API Drift Healer 🛠️
 
-**Current release: V1.0 — Postman Adapter**
+**Current release: V1.1 — `.http` File Adapter**
 
 API Drift Healer detects request-field drift between OpenAPI contracts and API tests.
 
@@ -8,6 +8,7 @@ It currently supports:
 
 - YAML API test cases
 - Postman Collection v2.1 files
+- VS Code REST Client-style `.http` files
 - deterministic field matching
 - safe patch decisions
 - human-readable diffs
@@ -122,6 +123,103 @@ No server is required for this structural Postman demo.
 
 ---
 
+
+## `.http` File Adapter
+
+V1.1 adds support for API requests stored in `.http` files, commonly used with VS Code REST Client and similar tools.
+
+Example outdated request:
+
+```http
+### Create User
+POST http://localhost:3000/users
+Content-Type: application/json
+
+{
+  "name": "Test User",
+  "userEmail": "qa_user@example.com"
+}
+```
+
+The OpenAPI contract requires `email_address`.
+
+The adapter converts the request into the same format-independent `NormalizedRequest` model used by the Postman adapter.
+
+```text
+.http file
+    ↓
+HTTP file adapter
+    ↓
+NormalizedRequest
+    ↓
+OpenAPI path and method resolver
+    ↓
+Deterministic drift analyzer
+    ↓
+Format-preserving field patch
+    ↓
+Healed .http file
+```
+
+### Dry Run
+
+```bash
+api-drift-healer http heal \
+  --file examples/http/create-user.http \
+  --openapi examples/http/openapi.yaml \
+  --dry-run
+```
+
+Expected result:
+
+```text
+Decision: SAFE_PATCH
+Candidate: userEmail -> email_address
+Score: 0.772
+Threshold: 0.700
+Confidence: High
+```
+
+Dry-run displays the proposed diff without writing a file.
+
+### Generate a Healed `.http` File
+
+```bash
+api-drift-healer http heal \
+  --file examples/http/create-user.http \
+  --openapi examples/http/openapi.yaml
+```
+
+The original file remains unchanged.
+
+The generated file is:
+
+```text
+examples/http/create-user.healed.http
+```
+
+Only the matching top-level JSON key is renamed. The request line, headers, comments, indentation, values, and newline format are preserved.
+
+### One-Command HTTP Demo
+
+```bash
+./scripts/demo_http.sh
+```
+
+The demo:
+
+1. reads the outdated `.http` request
+2. matches `POST /users` with OpenAPI
+3. detects `userEmail -> email_address`
+4. displays the safe patch decision and diff
+5. generates a temporary healed `.http` file
+6. validates the repaired request body
+7. verifies that the original file and formatting were preserved
+
+No API server is required for this structural demo.
+
+---
+
 ## YAML Healing Flow
 
 The existing YAML flow is still supported.
@@ -201,6 +299,26 @@ api-drift-healer postman heal --help
 ```
 
 ---
+
+
+## HTTP File CLI Options
+
+```text
+--file       Single-request .http file. Required.
+--openapi    OpenAPI contract file. Required.
+--output     Path for the generated healed .http file.
+--dry-run    Analyze and display the diff without writing a file.
+--overwrite  Allow an existing output file to be replaced.
+```
+
+Example:
+
+```bash
+api-drift-healer http heal \
+  --file examples/http/create-user.http \
+  --openapi examples/http/openapi.yaml \
+  --dry-run
+```
 
 ## Postman CLI Options
 
@@ -282,6 +400,24 @@ No PASS, no PR.
 
 ## Currently Supported
 
+
+### `.http` Files
+
+- REST Client-style `.http` request files
+- one request per file
+- full URLs and absolute paths
+- request headers preserved
+- raw JSON object bodies
+- exact OpenAPI path and HTTP method matching
+- one top-level field rename
+- dry-run analysis
+- unified source diff
+- format-preserving patching
+- LF and CRLF newline preservation
+- separate healed `.http` output
+- original-file protection
+- overwrite protection
+
 ### Postman
 
 - Postman Collection v2.1
@@ -313,6 +449,22 @@ No PASS, no PR.
 
 ## Current Limitations
 
+
+The V1.1 `.http` adapter currently supports one request per file.
+
+It does not currently support:
+
+- multiple requests separated by `###`
+- request variables such as `{{baseUrl}}`
+- form-data bodies
+- URL-encoded bodies
+- GraphQL bodies
+- XML bodies
+- JavaScript request scripts
+- nested JSON field repairs
+- multiple field repairs in one request
+- JSON arrays as the top-level request body
+
 The V1 Postman adapter does not currently support:
 
 - form-data bodies
@@ -328,7 +480,7 @@ The V1 Postman adapter does not currently support:
 - Newman runtime validation
 - automatic Postman Pull Request creation
 
-Newman validation is planned as the next Postman milestone.
+Newman runtime validation is planned for V1.2.
 
 The generated collection is currently validated as JSON and checked through the normalized request model. It is not yet executed against a live API by Newman.
 
@@ -352,7 +504,7 @@ SAFE_PATCH / REJECTED / NO_DRIFT / COMPLEX_DRIFT
 Format-specific Patcher
 ```
 
-The core analyzer does not depend on Postman or YAML.
+The core analyzer does not depend on Postman, `.http` files, or YAML.
 
 This makes it possible to add other adapters later without rebuilding the safety engine.
 
@@ -405,7 +557,7 @@ python -m unittest discover
 Current V1 test suite:
 
 ```text
-124 automated tests
+153 automated tests
 ```
 
 Coverage includes:
@@ -426,6 +578,13 @@ Coverage includes:
 - YAML CLI backward compatibility
 - one-command demo scripts
 - original-file preservation
+- `.http` request parsing
+- LF and CRLF newline handling
+- multiple-request rejection
+- format-preserving HTTP body patching
+- HTTP healing service flow
+- HTTP CLI behavior
+- one-command HTTP demo validation
 
 ---
 
@@ -446,25 +605,31 @@ V1.0 ✅ Healed collection writer
 V1.0 ✅ Postman dry-run and diff
 V1.0 ✅ Postman CLI
 V1.0 ✅ One-command Postman demo
-V1.0 ✅ 124 automated tests
+
+V1.1 ✅ Single-request `.http` parser
+V1.1 ✅ Method, URL, path, and JSON body extraction
+V1.1 ✅ LF and CRLF newline preservation
+V1.1 ✅ Multiple-request safety rejection
+V1.1 ✅ Format-preserving top-level field patcher
+V1.1 ✅ HTTP healing service
+V1.1 ✅ `.http` dry-run and source diff
+V1.1 ✅ `.http` CLI
+V1.1 ✅ Separate healed `.http` output
+V1.1 ✅ One-command HTTP demo
+V1.1 ✅ 153 automated tests
 ```
 
 ---
 
 ## Roadmap
 
-### V1.1 — Newman Validation
+### V1.2 — Newman Runtime Validation
 
-- optionally run the original collection with Newman
+- optionally run the original Postman collection with Newman
 - run the healed collection after a safe patch
-- require a passing Newman result before validated apply or PR workflows
+- require a passing Newman result before marking the output as validated
 - support Postman environment files
-
-### V1.2 — VS Code `.http` Adapter
-
-- parse REST Client request files
-- normalize JSON request bodies
-- generate reviewable patches
+- preserve the rule: no Newman PASS, no validated apply
 
 ### V1.3 — Pytest / Requests Adapter
 
@@ -472,6 +637,13 @@ V1.0 ✅ 124 automated tests
 - associate payloads with URLs and methods
 - preserve surrounding test logic
 - reject risky rewrites
+
+### V1.4 — Multiple Requests and Tests
+
+- select one request from multi-request `.http` files
+- support multiple Postman requests in one healing run
+- produce a combined analysis report
+- reject ambiguous cross-request patches
 
 ### V2 — CI Integration
 
