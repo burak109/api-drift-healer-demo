@@ -1,7 +1,30 @@
 import os
+import shutil
 import subprocess
 import unittest
 from pathlib import Path
+
+
+def find_bash_executable() -> str | None:
+    """Find a usable Bash executable on macOS, Linux, or Windows."""
+
+    if os.name == "nt":
+        git_bash = (
+            Path(
+                os.environ.get(
+                    "ProgramFiles",
+                    r"C:\Program Files",
+                )
+            )
+            / "Git"
+            / "bin"
+            / "bash.exe"
+        )
+
+        if git_bash.exists():
+            return str(git_bash)
+
+    return shutil.which("bash")
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -21,8 +44,18 @@ class PostmanDemoScriptTests(unittest.TestCase):
             COLLECTION_PATH.read_bytes()
         )
 
+        bash_executable = find_bash_executable()
+
+        if bash_executable is None:
+            raise unittest.SkipTest(
+                "Bash is required to run the demo script."
+            )
+
         cls.result = subprocess.run(
-            ["bash", str(SCRIPT_PATH)],
+            [
+                bash_executable,
+                str(SCRIPT_PATH),
+            ],
             cwd=PROJECT_ROOT,
             capture_output=True,
             text=True,
