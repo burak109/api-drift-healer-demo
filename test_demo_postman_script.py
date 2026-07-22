@@ -52,15 +52,17 @@ class PostmanDemoScriptTests(unittest.TestCase):
             )
 
         cls.result = subprocess.run(
-            [
-                bash_executable,
-                str(SCRIPT_PATH),
-            ],
-            cwd=PROJECT_ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+    [
+        bash_executable,
+        str(SCRIPT_PATH),
+    ],
+    cwd=PROJECT_ROOT,
+    capture_output=True,
+    text=True,
+    encoding="utf-8",
+    errors="replace",
+    check=False,
+)
 
         cls.original_collection_after = (
             COLLECTION_PATH.read_bytes()
