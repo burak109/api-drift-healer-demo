@@ -144,3 +144,56 @@ class DriftAnalysisResult:
     @property
     def safe_to_patch(self) -> bool:
         return self.decision == "SAFE_PATCH"
+
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedHttpRequest:
+    """Parsed .http request with source positions for safe patching."""
+
+    request: NormalizedRequest
+    source_text: str
+    body_start: int
+    body_end: int
+    newline: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.request, NormalizedRequest):
+            raise TypeError(
+                "Parsed HTTP request must contain a NormalizedRequest."
+            )
+
+        if not isinstance(self.source_text, str):
+            raise TypeError("HTTP source text must be a string.")
+
+        if not isinstance(self.body_start, int):
+            raise TypeError("HTTP body start must be an integer.")
+
+        if not isinstance(self.body_end, int):
+            raise TypeError("HTTP body end must be an integer.")
+
+        if self.body_start < 0:
+            raise ValueError("HTTP body start cannot be negative.")
+
+        if self.body_end < self.body_start:
+            raise ValueError(
+                "HTTP body end cannot be before body start."
+            )
+
+        if self.body_end > len(self.source_text):
+            raise ValueError(
+                "HTTP body end cannot exceed source length."
+            )
+
+        if self.newline not in {"\n", "\r\n"}:
+            raise ValueError(
+                "HTTP newline must be LF or CRLF."
+            )
+
+    @property
+    def body_text(self) -> str:
+        """Return the original body text without changing formatting."""
+
+        return self.source_text[
+            self.body_start:self.body_end
+        ]
