@@ -343,3 +343,47 @@ def _find_json_string_end(
     raise HttpFilePatchError(
         "Unterminated JSON string was found."
     )
+def default_healed_http_path(
+    source_path: str | Path,
+) -> Path:
+    """Return the default path for a healed .http file."""
+
+    path = Path(source_path)
+
+    suffix = path.suffix or ".http"
+
+    return path.with_name(
+        f"{path.stem}.healed{suffix}"
+    )
+
+
+def write_http_file(
+    source_text: str,
+    output_path: str | Path,
+    *,
+    overwrite: bool = False,
+) -> Path:
+    """Write an HTTP file without changing its newline format."""
+
+    target_path = Path(
+        output_path
+    ).expanduser().resolve()
+
+    if target_path.exists() and not overwrite:
+        raise HttpFilePatchError(
+            f"Output HTTP file already exists: {target_path}"
+        )
+
+    target_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    with target_path.open(
+        "w",
+        encoding="utf-8",
+        newline="",
+    ) as file:
+        file.write(source_text)
+
+    return target_path
