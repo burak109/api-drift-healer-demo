@@ -1,6 +1,6 @@
-# API Drift Healer 🛠️
+# API Drift Healer
 
-**Current release: V1.1 — `.http` File Adapter**
+**Current release: V1.2 - Newman Runtime Validation**
 
 API Drift Healer detects request-field drift between OpenAPI contracts and API tests.
 
@@ -14,6 +14,9 @@ It currently supports:
 - human-readable diffs
 - separate healed output files
 - dry-run analysis
+- Newman runtime validation
+- optional Postman environment files
+- original-failure and healed-pass validation guards
 
 The main example is simple:
 
@@ -31,22 +34,39 @@ The matching decision is deterministic. No LLM decides whether a patch is safe.
 
 ## Postman Adapter
 
-V1 can read a Postman collection, locate one request, compare its raw JSON body with OpenAPI, and generate a patched collection.
+The Postman adapter can read a Postman Collection v2.1 file, locate one request, compare its raw JSON body with OpenAPI, and generate a patched collection.
+
+V1.2 can also execute the original and healed collections with Newman.
 
 ```text
 Postman collection
-        ↓
+        |
+        v
 Normalized request
-        ↓
+        |
+        v
 OpenAPI path and method resolver
-        ↓
+        |
+        v
 Deterministic drift analyzer
-        ↓
+        |
+        v
 Safe field patch
-        ↓
-Diff
-        ↓
-Healed Postman collection
+        |
+        v
+Temporary healed collection
+        |
+        v
+Newman runtime validation
+        |
+        v
+Validated Postman output
+```
+
+The runtime safety rule is:
+
+```text
+No Newman PASS, no validated Postman output.
 ```
 
 ### Dry Run
@@ -79,9 +99,9 @@ The CLI also displays a field-level diff:
  }
 ```
 
-Dry-run does not write any files.
+Dry-run does not run Newman or write any files.
 
-### Generate a Healed Collection
+### Generate a Structurally Healed Collection
 
 ```bash
 api-drift-healer postman heal \
@@ -91,38 +111,117 @@ api-drift-healer postman heal \
   --output create-user.healed.postman_collection.json
 ```
 
+This command performs static healing only.
+
 The original collection is preserved.
 
-The generated collection contains:
+### Validate the Healed Collection with Newman
 
-```json
-{
-  "name": "Test User",
-  "email_address": "qa_user@example.com"
-}
+Start the local demo API:
+
+```bash
+python mock_server.py
+```
+
+Then run:
+
+```bash
+api-drift-healer postman heal \
+  --collection examples/postman/create-user.postman_collection.json \
+  --request "Create User" \
+  --openapi examples/postman/openapi.yaml \
+  --output create-user.validated.postman_collection.json \
+  --validate-newman
+```
+
+Expected runtime result:
+
+```text
+Static analysis: SAFE_PATCH
+Candidate: userEmail -> email_address
+Original Newman: FAIL (exit code 1)
+Healed Newman: PASS
+Decision: VALIDATED
+```
+
+The final collection is written only after the healed collection passes Newman.
+
+### Optional Environment File
+
+```bash
+api-drift-healer postman heal \
+  --collection examples/postman/create-user.postman_collection.json \
+  --request "Create User" \
+  --openapi examples/postman/openapi.yaml \
+  --environment demo.postman_environment.json \
+  --validate-newman
+```
+
+### Configure the Newman Timeout
+
+The default timeout is 120 seconds:
+
+```bash
+api-drift-healer postman heal \
+  --collection examples/postman/create-user.postman_collection.json \
+  --request "Create User" \
+  --openapi examples/postman/openapi.yaml \
+  --newman-timeout 45 \
+  --validate-newman
+```
+
+### Original Collection Guard
+
+By default, validation stops when the original collection already passes Newman.
+
+The guard can be disabled explicitly:
+
+```bash
+api-drift-healer postman heal \
+  --collection examples/postman/create-user.postman_collection.json \
+  --request "Create User" \
+  --openapi examples/postman/openapi.yaml \
+  --allow-original-pass \
+  --validate-newman
 ```
 
 ### One-Command Postman Demo
+
+On macOS, Linux, WSL, or Git Bash:
 
 ```bash
 ./scripts/demo_postman.sh
 ```
 
+From Windows PowerShell:
+
+```powershell
+bash scripts/demo_postman.sh
+```
+
 The demo:
 
-1. reads the outdated Postman request
-2. resolves `POST /users` from OpenAPI
-3. detects `userEmail -> email_address`
-4. shows the safe patch decision
-5. displays the body diff
-6. creates a temporary healed collection
-7. validates the generated JSON
+1. checks Newman and the local API
+2. starts the Flask mock server when required
+3. proves that the original collection fails Newman
+4. detects `userEmail -> email_address`
+5. generates a temporary healed collection
+6. proves that the healed collection passes Newman
+7. writes a validated output
 8. verifies that the original collection was preserved
+9. removes all temporary files
 
-No server is required for this structural Postman demo.
+Expected summary:
+
+```text
+Decision: SAFE_PATCH
+Original Newman: FAIL
+Healed Newman  : PASS
+Final decision : VALIDATED
+Output policy  : No Newman PASS, no validated output
+```
 
 ---
-
 
 ## `.http` File Adapter
 
@@ -290,12 +389,26 @@ python -m venv .venv
 python -m pip install -e .
 ```
 
+### Newman Runtime Validation
+
+Python is sufficient for static YAML, Postman, and `.http` healing.
+
+Node.js and Newman are additionally required for Postman runtime validation:
+
+```bash
+node --version
+newman --version
+```
+
+Newman is used only when `--validate-newman` is enabled or when the complete Postman runtime demo is executed.
+
 Verify the CLI:
 
 ```bash
 api-drift-healer --help
 api-drift-healer heal --help
 api-drift-healer postman heal --help
+api-drift-healer http heal --help
 ```
 
 ---
@@ -323,20 +436,37 @@ api-drift-healer http heal \
 ## Postman CLI Options
 
 ```text
---collection  Postman Collection v2.1 JSON file. Required.
---request     Exact Postman request name. Required.
---openapi     OpenAPI YAML or JSON file. Required.
---output      Path for the healed collection.
---dry-run     Show the decision and diff without writing.
---overwrite   Replace an existing output file.
+--collection           Postman Collection v2.1 JSON file. Required.
+--request              Exact Postman request name. Required.
+--openapi              OpenAPI YAML or JSON file. Required.
+--output               Path for the healed or validated collection.
+--dry-run              Show the static decision and diff without writing.
+--overwrite            Replace an existing output file.
+--validate-newman      Validate the original and healed collections with Newman.
+--environment          Optional Postman environment file for Newman.
+--newman-timeout       Maximum Newman runtime in seconds. Default: 120.
+--allow-original-pass  Continue when the original collection already passes.
+```
+
+Validation-related combinations:
+
+```text
+--environment requires --validate-newman
+--allow-original-pass requires --validate-newman
+--dry-run cannot be combined with --validate-newman
 ```
 
 Exit codes:
 
 ```text
-0  Safe patch generated, dry-run succeeded, or no drift found
-1  Patch rejected or drift is too complex
-2  Invalid input, unsupported format, or unsafe output path
+0  Dry-run succeeded, healed output generated, validated output generated,
+   or no drift was found
+
+1  Patch rejected, original collection unexpectedly passed,
+   or the healed collection failed Newman
+
+2  Invalid input, unsupported format, unsafe output path,
+   Newman missing, Newman timeout, or another tooling error
 ```
 
 ---
@@ -433,6 +563,15 @@ No PASS, no PR.
 - unified body diff
 - separate healed collection output
 - overwrite protection
+- original collection execution with Newman
+- temporary healed collection execution with Newman
+- original-failure validation guard
+- healed-pass output requirement
+- optional Postman environment forwarding
+- configurable Newman timeout
+- validated output protection
+- cross-platform Newman executable discovery
+- Windows `.cmd` shim support
 
 ### YAML
 
@@ -465,7 +604,7 @@ It does not currently support:
 - multiple field repairs in one request
 - JSON arrays as the top-level request body
 
-The V1 Postman adapter does not currently support:
+The Postman adapter does not currently support:
 
 - form-data bodies
 - URL-encoded bodies
@@ -477,12 +616,15 @@ The V1 Postman adapter does not currently support:
 - OpenAPI `$ref` request schemas
 - `allOf`, `oneOf`, or `anyOf` schemas
 - fuzzy OpenAPI path-template matching
-- Newman runtime validation
+- healing multiple Postman requests in one run
+- isolated Newman execution for only the selected request
 - automatic Postman Pull Request creation
 
-Newman runtime validation is planned for V1.2.
+One Postman request is selected and patched per healing run.
 
-The generated collection is currently validated as JSON and checked through the normalized request model. It is not yet executed against a live API by Newman.
+Newman executes the collection containing that request. The tool does not yet heal multiple requests in one run or isolate Newman execution to only the selected request.
+
+The original collection must fail Newman by default, and the temporarily healed collection must pass before a validated output is written.
 
 ---
 
@@ -490,21 +632,38 @@ The generated collection is currently validated as JSON and checked through the 
 
 ```text
 Input Adapter
-    ↓
+    |
+    v
 NormalizedRequest
-    ↓
+    |
+    v
 OpenAPI Resolver
-    ↓
+    |
+    v
 ResolvedRequestSchema
-    ↓
+    |
+    v
 Drift Analyzer
-    ↓
+    |
+    v
 SAFE_PATCH / REJECTED / NO_DRIFT / COMPLEX_DRIFT
-    ↓
+    |
+    v
 Format-specific Patcher
+    |
+    v
+Optional Runtime Validator
+    |
+    v
+Newman PASS / FAIL
+    |
+    v
+Validated Output
 ```
 
-The core analyzer does not depend on Postman, `.http` files, or YAML.
+The runtime validator is optional and format-specific.
+
+The deterministic drift analyzer remains independent from Newman and Postman.
 
 This makes it possible to add other adapters later without rebuilding the safety engine.
 
@@ -514,34 +673,46 @@ This makes it possible to add other adapters later without rebuilding the safety
 
 ```text
 api-drift-healer-demo/
-├── api_drift_healer/
-│   ├── adapters/
-│   │   ├── __init__.py
-│   │   └── postman.py
-│   ├── __init__.py
-│   ├── cli.py
-│   ├── drift_analyzer.py
-│   ├── models.py
-│   ├── openapi_resolver.py
-│   └── postman_healer.py
-├── examples/
-│   ├── basic_yaml/
-│   │   ├── README.md
-│   │   ├── api_test_case.yaml
-│   │   └── openapi.yaml
-│   └── postman/
-│       ├── README.md
-│       ├── create-user.postman_collection.json
-│       └── openapi.yaml
-├── scripts/
-│   ├── demo_basic_yaml.sh
-│   └── demo_postman.sh
-├── auto_healer.py
-├── field_matcher.py
-├── mock_server.py
-├── test_runner.py
-├── pyproject.toml
-└── README.md
+|-- api_drift_healer/
+|   |-- adapters/
+|   |   |-- __init__.py
+|   |   |-- http_file.py
+|   |   `-- postman.py
+|   |-- __init__.py
+|   |-- cli.py
+|   |-- drift_analyzer.py
+|   |-- http_healer.py
+|   |-- models.py
+|   |-- newman_runner.py
+|   |-- openapi_resolver.py
+|   |-- postman_healer.py
+|   `-- postman_validator.py
+|-- examples/
+|   |-- basic_yaml/
+|   |   |-- README.md
+|   |   |-- api_test_case.yaml
+|   |   `-- openapi.yaml
+|   |-- http/
+|   |   |-- README.md
+|   |   |-- create-user.http
+|   |   `-- openapi.yaml
+|   `-- postman/
+|       |-- README.md
+|       |-- create-user.postman_collection.json
+|       `-- openapi.yaml
+|-- scripts/
+|   |-- demo_basic_yaml.sh
+|   |-- demo_http.sh
+|   `-- demo_postman.sh
+|-- auto_healer.py
+|-- field_matcher.py
+|-- mock_server.py
+|-- test_runner.py
+|-- test_newman_runner.py
+|-- test_postman_validator.py
+|-- test_postman_validation_cli.py
+|-- pyproject.toml
+`-- README.md
 ```
 
 ---
@@ -554,10 +725,10 @@ Run all tests:
 python -m unittest discover
 ```
 
-Current V1 test suite:
+Current V1.2 test suite:
 
 ```text
-153 automated tests
+179 automated tests
 ```
 
 Coverage includes:
@@ -585,74 +756,87 @@ Coverage includes:
 - HTTP healing service flow
 - HTTP CLI behavior
 - one-command HTTP demo validation
+- cross-platform Newman executable discovery
+- original and healed Newman execution
+- Postman environment forwarding
+- Newman timeout and tooling error handling
+- original-failure validation guard
+- healed-pass output requirement
+- validated Postman output protection
+- real Flask and Newman runtime demo
 
 ---
 
 ## Current Status
 
 ```text
-V0.4 ✅ Deterministic smart field matching
-V0.5 ✅ Installable Typer CLI
-V0.6 ✅ Runnable YAML example and one-command demo
+V0.4 DONE Deterministic smart field matching
+V0.5 DONE Installable Typer CLI
+V0.6 DONE Runnable YAML example and one-command demo
 
-V1.0 ✅ Format-independent request model
-V1.0 ✅ Postman Collection v2.1 parser
-V1.0 ✅ Nested request discovery
-V1.0 ✅ OpenAPI path and method resolver
-V1.0 ✅ Format-independent drift analyzer
-V1.0 ✅ Safe Postman body patcher
-V1.0 ✅ Healed collection writer
-V1.0 ✅ Postman dry-run and diff
-V1.0 ✅ Postman CLI
-V1.0 ✅ One-command Postman demo
+V1.0 DONE Format-independent request model
+V1.0 DONE Postman Collection v2.1 parser
+V1.0 DONE Nested request discovery
+V1.0 DONE OpenAPI path and method resolver
+V1.0 DONE Format-independent drift analyzer
+V1.0 DONE Safe Postman body patcher
+V1.0 DONE Healed collection writer
+V1.0 DONE Postman dry-run and diff
+V1.0 DONE Postman CLI
+V1.0 DONE One-command Postman demo
 
-V1.1 ✅ Single-request `.http` parser
-V1.1 ✅ Method, URL, path, and JSON body extraction
-V1.1 ✅ LF and CRLF newline preservation
-V1.1 ✅ Multiple-request safety rejection
-V1.1 ✅ Format-preserving top-level field patcher
-V1.1 ✅ HTTP healing service
-V1.1 ✅ `.http` dry-run and source diff
-V1.1 ✅ `.http` CLI
-V1.1 ✅ Separate healed `.http` output
-V1.1 ✅ One-command HTTP demo
-V1.1 ✅ 153 automated tests
+V1.1 DONE Single-request `.http` parser
+V1.1 DONE Method, URL, path, and JSON body extraction
+V1.1 DONE LF and CRLF newline preservation
+V1.1 DONE Multiple-request safety rejection
+V1.1 DONE Format-preserving top-level field patcher
+V1.1 DONE HTTP healing service
+V1.1 DONE `.http` dry-run and source diff
+V1.1 DONE `.http` CLI
+V1.1 DONE Separate healed `.http` output
+V1.1 DONE One-command HTTP demo
+V1.1 DONE 153 automated tests
+V1.2 DONE Cross-platform Newman executable discovery
+V1.2 DONE Original collection runtime execution
+V1.2 DONE Temporary healed collection validation
+V1.2 DONE Original-failure guard
+V1.2 DONE Healed-pass requirement
+V1.2 DONE Optional Postman environment support
+V1.2 DONE Configurable Newman timeout
+V1.2 DONE Validated output protection
+V1.2 DONE Newman validation CLI options
+V1.2 DONE Real Flask and Newman runtime demo
+V1.2 DONE Windows, macOS, and Linux runner support
+V1.2 DONE 179 automated tests
 ```
 
 ---
 
 ## Roadmap
 
-### V1.2 — Newman Runtime Validation
 
-- optionally run the original Postman collection with Newman
-- run the healed collection after a safe patch
-- require a passing Newman result before marking the output as validated
-- support Postman environment files
-- preserve the rule: no Newman PASS, no validated apply
-
-### V1.3 — Pytest / Requests Adapter
+### V1.3 - Pytest / Requests Adapter
 
 - locate simple Python request payloads
 - associate payloads with URLs and methods
 - preserve surrounding test logic
 - reject risky rewrites
 
-### V1.4 — Multiple Requests and Tests
+### V1.4 - Multiple Requests and Tests
 
 - select one request from multi-request `.http` files
 - support multiple Postman requests in one healing run
 - produce a combined analysis report
 - reject ambiguous cross-request patches
 
-### V2 — CI Integration
+### V2 - CI Integration
 
 - run inside GitHub Actions
 - react to failed API tests
 - generate reports or Pull Requests
 - keep human review before merge
 
-### V3 — Local LLM Explanation Layer
+### V3 - Local LLM Explanation Layer
 
 ```text
 Deterministic code decides.

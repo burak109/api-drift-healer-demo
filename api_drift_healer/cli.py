@@ -13,10 +13,18 @@ from api_drift_healer.http_healer import (
     HttpHealError,
     heal_http_file,
 )
+from api_drift_healer.newman_runner import (
+    NewmanRunResult,
+    NewmanRunnerError,
+)
 from api_drift_healer.openapi_resolver import OpenApiResolverError
 from api_drift_healer.postman_healer import (
     PostmanHealError,
     heal_postman_collection,
+)
+from api_drift_healer.postman_validator import (
+    PostmanValidationError,
+    validate_postman_heal,
 )
 from auto_healer import run_healer
 
@@ -24,9 +32,9 @@ from auto_healer import run_healer
 app = typer.Typer(
     name="api-drift-healer",
     help=(
-    "Detect and safely heal API contract drift "
-    "in YAML tests, Postman collections, and .http files."
-),
+        "Detect and safely heal API contract drift "
+        "in YAML tests, Postman collections, and .http files."
+    ),
     no_args_is_help=True,
 )
 
@@ -34,6 +42,7 @@ postman_app = typer.Typer(
     help="Auto-heal Postman collections from OpenAPI drift.",
     no_args_is_help=True,
 )
+
 http_app = typer.Typer(
     help="Auto-heal .http request files from OpenAPI drift.",
     no_args_is_help=True,
@@ -43,10 +52,12 @@ app.add_typer(
     postman_app,
     name="postman",
 )
+
 app.add_typer(
     http_app,
     name="http",
 )
+
 
 @app.callback()
 def main() -> None:
@@ -150,6 +161,23 @@ def heal(
     raise typer.Exit(code=exit_code)
 
 
+def echo_newman_result(
+    label: str,
+    result: Optional[NewmanRunResult],
+) -> None:
+    """Print a concise Newman runtime result."""
+
+    if result is None:
+        return
+
+    if result.passed:
+        status = "PASS"
+    else:
+        status = f"FAIL (exit code {result.return_code})"
+
+    typer.echo(f"{label}: {status}")
+
+
 @postman_app.command("heal")
 def heal_postman(
     collection: Path = typer.Option(
@@ -192,12 +220,65 @@ def heal_postman(
         "--overwrite",
         help="Allow an existing output file to be replaced.",
     ),
+    validate_newman: bool = typer.Option(
+        False,
+        "--validate-newman",
+        help=(
+            "Run the original and healed collections with Newman. "
+            "The output is written only when the healed run passes."
+        ),
+    ),
+    environment: Optional[Path] = typer.Option(
+        None,
+        "--environment",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=True,
+        help="Optional Postman environment JSON file for Newman.",
+    ),
+    newman_timeout: float = typer.Option(
+        120.0,
+        "--newman-timeout",
+        min=0.1,
+        help="Maximum Newman runtime in seconds.",
+    ),
+    allow_original_pass: bool = typer.Option(
+        False,
+        "--allow-original-pass",
+        help=(
+            "Allow validation to continue even when the original "
+            "collection already passes Newman."
+        ),
+    ),
 ) -> None:
     """Auto-heal one Postman request from OpenAPI drift."""
 
-    mode = "DRY RUN" if dry_run else "HEAL"
+    if dry_run and validate_newman:
+        raise typer.BadParameter(
+            "--dry-run cannot be used together with "
+            "--validate-newman."
+        )
 
-    typer.echo("API Drift Healer V1.0 Postman CLI")
+    if environment is not None and not validate_newman:
+        raise typer.BadParameter(
+            "--environment requires --validate-newman."
+        )
+
+    if allow_original_pass and not validate_newman:
+        raise typer.BadParameter(
+            "--allow-original-pass requires --validate-newman."
+        )
+
+    if validate_newman:
+        mode = "NEWMAN VALIDATION"
+    elif dry_run:
+        mode = "DRY RUN"
+    else:
+        mode = "HEAL"
+
+    typer.echo("API Drift Healer V1.2 Postman CLI")
     typer.echo(f"Collection: {collection}")
     typer.echo(f"Request: {request_name}")
     typer.echo(f"OpenAPI: {openapi}")
@@ -205,8 +286,181 @@ def heal_postman(
     if output is not None:
         typer.echo(f"Output: {output}")
 
+    if environment is not None:
+        typer.echo(f"Environment: {environment}")
+
+    if validate_newman:
+        typer.echo(
+            f"Newman timeout: {newman_timeout:g} seconds"
+        )
+
     typer.echo(f"Mode: {mode}")
     typer.echo("")
+
+    if validate_newman:
+        try:
+            validation_result = validate_postman_heal(
+                collection_path=collection,
+                openapi_path=openapi,
+                request_name=request_name,
+                environment_path=environment,
+                output_path=output,
+                overwrite=overwrite,
+                timeout_seconds=newman_timeout,
+                require_original_failure=(
+                    not allow_original_pass
+                ),
+            )
+        except (
+            PostmanAdapterError,
+            OpenApiResolverError,
+            DriftAnalyzerError,
+            PostmanHealError,
+            PostmanValidationError,
+            NewmanRunnerError,
+        ) as exc:
+            typer.echo(
+                f"[ERROR] {exc}",
+                err=True,
+            )
+            raise typer.Exit(code=2) from exc
+
+        heal_result = validation_result.heal_result
+        analysis = heal_result.analysis
+
+        typer.echo(
+            f"Static analysis: {analysis.decision}"
+        )
+
+        if (
+            analysis.old_field is not None
+            and analysis.new_field is not None
+        ):
+            typer.echo(
+                "Candidate: "
+                f"{analysis.old_field} -> "
+                f"{analysis.new_field}"
+            )
+
+        if analysis.score is not None:
+            typer.echo(
+                f"Score: {analysis.score:.3f}"
+            )
+
+        if analysis.threshold is not None:
+            typer.echo(
+                f"Threshold: {analysis.threshold:.3f}"
+            )
+
+        if analysis.confidence is not None:
+            typer.echo(
+                f"Confidence: {analysis.confidence}"
+            )
+
+        if heal_result.diff:
+            typer.echo("")
+            typer.echo("Diff:")
+            typer.echo(
+                heal_result.diff.rstrip("\\n")
+            )
+
+        typer.echo("")
+
+        echo_newman_result(
+            "Original Newman",
+            validation_result.original_run,
+        )
+
+        echo_newman_result(
+            "Healed Newman",
+            validation_result.healed_run,
+        )
+
+        typer.echo(
+            f"Decision: {validation_result.decision}"
+        )
+
+        if validation_result.decision == "VALIDATED":
+            typer.echo("")
+
+            if validation_result.output_path is not None:
+                typer.echo(
+                    "[+] Validated Postman collection generated: "
+                    f"{validation_result.output_path}"
+                )
+
+            raise typer.Exit(code=0)
+
+        if validation_result.decision == "ORIGINAL_PASSED":
+            typer.echo("")
+            typer.echo(
+                "[!] The original collection already passed Newman."
+            )
+            typer.echo(
+                "Validated output was not written."
+            )
+            typer.echo(
+                "Use --allow-original-pass to continue "
+                "validation anyway."
+            )
+
+            raise typer.Exit(code=1)
+
+        if validation_result.decision == "HEALED_FAILED":
+            typer.echo("")
+            typer.echo(
+                "[!] The healed collection failed Newman."
+            )
+            typer.echo(
+                "Validated output was not written."
+            )
+
+            if (
+                validation_result.healed_run is not None
+                and validation_result.healed_run.stdout.strip()
+            ):
+                typer.echo("")
+                typer.echo("Newman output:")
+                typer.echo(
+                    validation_result.healed_run.stdout.rstrip()
+                )
+
+            if (
+                validation_result.healed_run is not None
+                and validation_result.healed_run.stderr.strip()
+            ):
+                typer.echo("")
+                typer.echo(
+                    validation_result.healed_run.stderr.rstrip(),
+                    err=True,
+                )
+
+            raise typer.Exit(code=1)
+
+        if validation_result.decision == "NOT_PATCHABLE":
+            typer.echo("")
+
+            if analysis.decision == "NO_DRIFT":
+                typer.echo(
+                    "No missing required OpenAPI fields "
+                    "were found."
+                )
+                raise typer.Exit(code=0)
+
+            typer.echo(
+                "[!] Automatic Postman patch was not applied."
+            )
+
+            for reason in analysis.reasons:
+                typer.echo(f"    - {reason}")
+
+            raise typer.Exit(code=1)
+
+        typer.echo(
+            "[ERROR] Unknown Newman validation decision.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
 
     try:
         result = heal_postman_collection(
@@ -238,8 +492,9 @@ def heal_postman(
         and analysis.new_field is not None
     ):
         typer.echo(
-            f"Candidate: "
-            f"{analysis.old_field} -> {analysis.new_field}"
+            "Candidate: "
+            f"{analysis.old_field} -> "
+            f"{analysis.new_field}"
         )
 
     if analysis.score is not None:
@@ -261,7 +516,7 @@ def heal_postman(
         typer.echo("")
         typer.echo("Diff:")
         typer.echo(
-            result.diff.rstrip("\n")
+            result.diff.rstrip("\\n")
         )
 
     if analysis.decision == "SAFE_PATCH":
@@ -274,7 +529,7 @@ def heal_postman(
         elif result.output_path is not None:
             typer.echo("")
             typer.echo(
-                f"[+] Healed collection generated: "
+                "[+] Healed collection generated: "
                 f"{result.output_path}"
             )
 
@@ -296,6 +551,8 @@ def heal_postman(
         typer.echo(f"    - {reason}")
 
     raise typer.Exit(code=1)
+
+
 @http_app.command("heal")
 def heal_http(
     file: Path = typer.Option(
@@ -401,7 +658,7 @@ def heal_http(
         typer.echo("")
         typer.echo("Diff:")
         typer.echo(
-            result.diff.rstrip("\n")
+            result.diff.rstrip("\\n")
         )
 
     if analysis.decision == "SAFE_PATCH":
