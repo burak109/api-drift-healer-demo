@@ -180,3 +180,166 @@ def _extract_path(raw_url: str) -> str:
         )
 
     return path
+class HttpFilePatchError(ValueError):
+    """Raised when an HTTP request cannot be patched safely."""
+
+
+def patch_http_request_body(
+    parsed_request: ParsedHttpRequest,
+    old_field: str,
+    new_field: str,
+) -> str:
+    """Rename one top-level JSON field without reformatting the file."""
+
+    old_field = old_field.strip()
+    new_field = new_field.strip()
+
+    if not old_field or not new_field:
+        raise HttpFilePatchError(
+            "Patch field names cannot be empty."
+        )
+
+    if old_field == new_field:
+        raise HttpFilePatchError(
+            "Old and new field names must be different."
+        )
+
+    body = parsed_request.request.body
+
+    if old_field not in body:
+        raise HttpFilePatchError(
+            f"Field '{old_field}' was not found "
+            "in the top-level HTTP request body."
+        )
+
+    if new_field in body:
+        raise HttpFilePatchError(
+            f"Field '{new_field}' already exists "
+            "in the HTTP request body."
+        )
+
+    matches = _find_top_level_key_spans(
+        parsed_request.body_text,
+        old_field,
+    )
+
+    if len(matches) != 1:
+        raise HttpFilePatchError(
+            f"Expected exactly one top-level key "
+            f"named '{old_field}', found {len(matches)}."
+        )
+
+    key_start, key_end = matches[0]
+
+    replacement = json.dumps(
+        new_field,
+        ensure_ascii=False,
+    )
+
+    patched_body = (
+        parsed_request.body_text[:key_start]
+        + replacement
+        + parsed_request.body_text[key_end:]
+    )
+
+    patched_source = (
+        parsed_request.source_text[
+            : parsed_request.body_start
+        ]
+        + patched_body
+        + parsed_request.source_text[
+            parsed_request.body_end :
+        ]
+    )
+
+    try:
+        validated = parse_http_request(
+            patched_source,
+            name=parsed_request.request.name,
+        )
+    except HttpFileParseError as exc:
+        raise HttpFilePatchError(
+            "Patched HTTP request is not valid."
+        ) from exc
+
+    if new_field not in validated.request.body:
+        raise HttpFilePatchError(
+            "Patched field was not found after validation."
+        )
+
+    return patched_source
+
+
+def _find_top_level_key_spans(
+    body_text: str,
+    target_field: str,
+) -> list[tuple[int, int]]:
+    matches: list[tuple[int, int]] = []
+
+    depth = 0
+    index = 0
+
+    while index < len(body_text):
+        character = body_text[index]
+
+        if character == '"':
+            token_start = index
+            token_end = _find_json_string_end(
+                body_text,
+                token_start,
+            )
+
+            if depth == 1:
+                next_index = token_end
+
+                while (
+                    next_index < len(body_text)
+                    and body_text[next_index].isspace()
+                ):
+                    next_index += 1
+
+                if (
+                    next_index < len(body_text)
+                    and body_text[next_index] == ":"
+                ):
+                    decoded_key = json.loads(
+                        body_text[token_start:token_end]
+                    )
+
+                    if decoded_key == target_field:
+                        matches.append(
+                            (token_start, token_end)
+                        )
+
+            index = token_end
+            continue
+
+        if character in "{[":
+            depth += 1
+        elif character in "}]":
+            depth -= 1
+
+        index += 1
+
+    return matches
+
+
+def _find_json_string_end(
+    text: str,
+    start: int,
+) -> int:
+    index = start + 1
+
+    while index < len(text):
+        if text[index] == "\\":
+            index += 2
+            continue
+
+        if text[index] == '"':
+            return index + 1
+
+        index += 1
+
+    raise HttpFilePatchError(
+        "Unterminated JSON string was found."
+    )
