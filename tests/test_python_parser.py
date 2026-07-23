@@ -29,11 +29,24 @@ response = requests.post(
         request = result.requests[0]
 
         self.assertEqual(request.method, "POST")
-        self.assertEqual(request.url, "http://localhost:3000/users")
-        self.assertEqual(request.payload.variable_name, "payload")
+        self.assertEqual(
+            request.url,
+            "http://localhost:3000/users",
+        )
+        self.assertEqual(
+            request.payload.variable_name,
+            "payload",
+        )
         self.assertEqual(
             request.payload.fields,
             ("name", "userEmail"),
+        )
+        self.assertEqual(
+            request.payload.values,
+            {
+                "name": "Test User",
+                "userEmail": "qa_user@example.com",
+            },
         )
         self.assertEqual(result.skipped_reasons, ())
 
@@ -62,6 +75,13 @@ requests.put(
             request.payload.fields,
             ("name", "userEmail"),
         )
+        self.assertEqual(
+            request.payload.values,
+            {
+                "name": "Updated User",
+                "userEmail": "updated@example.com",
+            },
+        )
 
     def test_detects_url_keyword_argument(self) -> None:
         source = '''
@@ -78,10 +98,19 @@ requests.patch(
         result = parse_python_source(source)
 
         self.assertEqual(len(result.requests), 1)
-        self.assertEqual(result.requests[0].method, "PATCH")
+        self.assertEqual(
+            result.requests[0].method,
+            "PATCH",
+        )
         self.assertEqual(
             result.requests[0].url,
             "http://localhost:3000/users/1",
+        )
+        self.assertEqual(
+            result.requests[0].payload.values,
+            {
+                "userEmail": "qa_user@example.com",
+            },
         )
 
     def test_ignores_unsupported_get_request(self) -> None:
@@ -134,7 +163,38 @@ requests.post(
         self.assertEqual(result.requests, ())
         self.assertEqual(
             result.skipped_reasons,
-            ("Line 6: unsupported or missing json payload",),
+            (
+                "Line 6: unsupported or missing json payload",
+            ),
+        )
+
+    def test_skips_payload_with_dynamic_value(self) -> None:
+        source = '''
+import requests
+
+email = get_test_email()
+
+payload = {
+    "name": "Test User",
+    "userEmail": email,
+}
+
+requests.post(
+    "http://localhost:3000/users",
+    json=payload,
+)
+'''
+
+        result = parse_python_source(source)
+
+        self.assertEqual(result.requests, ())
+        self.assertEqual(
+            len(result.skipped_reasons),
+            1,
+        )
+        self.assertIn(
+            "unsupported or missing json payload",
+            result.skipped_reasons[0],
         )
 
     def test_rejects_invalid_python_source(self) -> None:

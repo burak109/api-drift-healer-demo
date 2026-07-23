@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import ast
+import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
-SUPPORTED_REQUEST_METHODS = {"post", "put", "patch"}
+SUPPORTED_REQUEST_METHODS = {
+    "post",
+    "put",
+    "patch",
+}
 
 
 class PythonParseError(Exception):
@@ -18,6 +24,7 @@ class PythonPayload:
 
     variable_name: str | None
     fields: tuple[str, ...]
+    values: dict[str, Any]
     line_number: int
     end_line_number: int | None
 
@@ -49,11 +56,14 @@ class PythonRequestParser(ast.NodeVisitor):
         self._skipped_reasons: list[str] = []
 
     def parse(self, source: str) -> PythonParseResult:
+        """Parse Python source without executing it."""
+
         try:
             tree = ast.parse(source)
         except SyntaxError as exc:
             raise PythonParseError(
-                f"Python source could not be parsed: line {exc.lineno}: {exc.msg}"
+                "Python source could not be parsed: "
+                f"line {exc.lineno}: {exc.msg}"
             ) from exc
 
         self.visit(tree)
@@ -64,6 +74,8 @@ class PythonRequestParser(ast.NodeVisitor):
         )
 
     def visit_Assign(self, node: ast.Assign) -> None:
+        """Store simple variable assignments containing literal dictionaries."""
+
         if isinstance(node.value, ast.Dict):
             for target in node.targets:
                 if isinstance(target, ast.Name):
@@ -72,6 +84,8 @@ class PythonRequestParser(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        """Store annotated assignments containing literal dictionaries."""
+
         if (
             isinstance(node.target, ast.Name)
             and isinstance(node.value, ast.Dict)
@@ -81,6 +95,8 @@ class PythonRequestParser(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
+        """Find supported requests calls."""
+
         request_method = self._get_request_method(node)
 
         if request_method is None:
@@ -100,7 +116,8 @@ class PythonRequestParser(ast.NodeVisitor):
 
         if payload is None:
             self._skipped_reasons.append(
-                f"Line {node.lineno}: unsupported or missing json payload"
+                f"Line {node.lineno}: "
+                "unsupported or missing json payload"
             )
             self.generic_visit(node)
             return
@@ -117,7 +134,11 @@ class PythonRequestParser(ast.NodeVisitor):
         self.generic_visit(node)
 
     @staticmethod
-    def _get_request_method(node: ast.Call) -> str | None:
+    def _get_request_method(
+        node: ast.Call,
+    ) -> str | None:
+        """Return the supported requests method used by a call."""
+
         function = node.func
 
         if not isinstance(function, ast.Attribute):
@@ -137,7 +158,11 @@ class PythonRequestParser(ast.NodeVisitor):
         return method
 
     @staticmethod
-    def _get_literal_url(node: ast.Call) -> str | None:
+    def _get_literal_url(
+        node: ast.Call,
+    ) -> str | None:
+        """Read a literal URL from positional or keyword arguments."""
+
         if node.args:
             first_argument = node.args[0]
 
@@ -157,7 +182,12 @@ class PythonRequestParser(ast.NodeVisitor):
 
         return None
 
-    def _get_payload(self, node: ast.Call) -> PythonPayload | None:
+    def _get_payload(
+        self,
+        node: ast.Call,
+    ) -> PythonPayload | None:
+        """Resolve a literal dictionary passed through the json argument."""
+
         json_value: ast.expr | None = None
 
         for keyword in node.keywords:
@@ -175,7 +205,9 @@ class PythonRequestParser(ast.NodeVisitor):
             )
 
         if isinstance(json_value, ast.Name):
-            dictionary = self._dict_assignments.get(json_value.id)
+            dictionary = self._dict_assignments.get(
+                json_value.id
+            )
 
             if dictionary is None:
                 return None
@@ -192,44 +224,72 @@ class PythonRequestParser(ast.NodeVisitor):
         dictionary: ast.Dict,
         variable_name: str | None,
     ) -> PythonPayload | None:
-        fields: list[str] = []
+        """Convert a safe literal dictionary into a PythonPayload."""
 
-        for key in dictionary.keys:
-            if not (
-                isinstance(key, ast.Constant)
-                and isinstance(key.value, str)
-            ):
-                return None
+        try:
+            literal_value = ast.literal_eval(dictionary)
+        except (ValueError, TypeError, SyntaxError):
+            return None
 
-            fields.append(key.value)
+        if not isinstance(literal_value, dict):
+            return None
+
+        if not all(
+            isinstance(key, str) and bool(key)
+            for key in literal_value
+        ):
+            return None
+
+        try:
+            json.dumps(
+                literal_value,
+                allow_nan=False,
+            )
+        except (TypeError, ValueError):
+            return None
 
         return PythonPayload(
             variable_name=variable_name,
-            fields=tuple(fields),
+            fields=tuple(literal_value.keys()),
+            values=dict(literal_value),
             line_number=dictionary.lineno,
-            end_line_number=getattr(dictionary, "end_lineno", None),
+            end_line_number=getattr(
+                dictionary,
+                "end_lineno",
+                None,
+            ),
         )
 
 
-def parse_python_source(source: str) -> PythonParseResult:
-    """Parse Python source code without changing it."""
+def parse_python_source(
+    source: str,
+) -> PythonParseResult:
+    """Parse Python source code without changing or executing it."""
 
     return PythonRequestParser().parse(source)
 
 
-def parse_python_file(file_path: str | Path) -> PythonParseResult:
+def parse_python_file(
+    file_path: str | Path,
+) -> PythonParseResult:
     """Read and parse a Python source file."""
 
     path = Path(file_path)
 
     if not path.exists():
-        raise PythonParseError(f"Python file does not exist: {path}")
+        raise PythonParseError(
+            f"Python file does not exist: {path}"
+        )
 
     if not path.is_file():
-        raise PythonParseError(f"Python path is not a file: {path}")
+        raise PythonParseError(
+            f"Python path is not a file: {path}"
+        )
 
     try:
-        source = path.read_text(encoding="utf-8")
+        source = path.read_text(
+            encoding="utf-8",
+        )
     except OSError as exc:
         raise PythonParseError(
             f"Python file could not be read: {path}"
