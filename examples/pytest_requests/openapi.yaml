@@ -1,0 +1,28 @@
+openapi: 3.0.0
+
+info:
+  title: API Drift Healer Pytest Demo
+  version: 1.0.0
+
+paths:
+  /users:
+    post:
+      summary: Create user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - email_address
+              properties:
+                name:
+                  type: string
+                email_address:
+                  type: string
+                  format: email
+      responses:
+        "201":
+          description: User created

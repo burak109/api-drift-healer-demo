@@ -26,6 +26,14 @@ from api_drift_healer.postman_validator import (
     PostmanValidationError,
     validate_postman_heal,
 )
+from api_drift_healer.python_diff import (
+    PythonDiffError,
+    build_python_patch_suggestion,
+)
+from api_drift_healer.python_request_analyzer import (
+    PythonRequestAnalysisError,
+    analyze_python_request_file,
+)
 from auto_healer import run_healer
 
 
@@ -33,7 +41,8 @@ app = typer.Typer(
     name="api-drift-healer",
     help=(
         "Detect and safely heal API contract drift "
-        "in YAML tests, Postman collections, and .http files."
+        "in YAML tests, Postman collections, .http files, "
+        "and Python requests tests."
     ),
     no_args_is_help=True,
 )
@@ -48,6 +57,14 @@ http_app = typer.Typer(
     no_args_is_help=True,
 )
 
+pytest_app = typer.Typer(
+    help=(
+        "Detect stale payload fields in pytest and "
+        "Python requests API tests."
+    ),
+    no_args_is_help=True,
+)
+
 app.add_typer(
     postman_app,
     name="postman",
@@ -56,6 +73,11 @@ app.add_typer(
 app.add_typer(
     http_app,
     name="http",
+)
+
+app.add_typer(
+    pytest_app,
+    name="pytest",
 )
 
 
@@ -361,7 +383,7 @@ def heal_postman(
             typer.echo("")
             typer.echo("Diff:")
             typer.echo(
-                heal_result.diff.rstrip("\\n")
+                heal_result.diff.rstrip("\n")
             )
 
         typer.echo("")
@@ -516,7 +538,7 @@ def heal_postman(
         typer.echo("")
         typer.echo("Diff:")
         typer.echo(
-            result.diff.rstrip("\\n")
+            result.diff.rstrip("\n")
         )
 
     if analysis.decision == "SAFE_PATCH":
@@ -658,7 +680,7 @@ def heal_http(
         typer.echo("")
         typer.echo("Diff:")
         typer.echo(
-            result.diff.rstrip("\\n")
+            result.diff.rstrip("\n")
         )
 
     if analysis.decision == "SAFE_PATCH":
@@ -693,6 +715,126 @@ def heal_http(
         typer.echo(f"    - {reason}")
 
     raise typer.Exit(code=1)
+
+
+@pytest_app.command("analyze")
+def analyze_pytest_request(
+    file: Path = typer.Option(
+        ...,
+        "--file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=True,
+        help="Path to the Python API test file.",
+    ),
+    openapi: Path = typer.Option(
+        ...,
+        "--openapi",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=True,
+        help="Path to the OpenAPI contract file.",
+    ),
+) -> None:
+    """
+    Analyze one Python requests call and show a safe patch suggestion.
+
+    The Python source file is never modified.
+    """
+
+    typer.echo("")
+    typer.echo(
+        "API Drift Healer - Pytest / Requests Adapter"
+    )
+    typer.echo("")
+    typer.echo(f"Python file : {file}")
+    typer.echo(f"OpenAPI    : {openapi}")
+    typer.echo("Mode       : SUGGEST_ONLY")
+    typer.echo("")
+
+    try:
+        result = analyze_python_request_file(
+            python_path=file,
+            openapi_path=openapi,
+        )
+    except (
+        PythonRequestAnalysisError,
+        OpenApiResolverError,
+        DriftAnalyzerError,
+    ) as exc:
+        typer.echo(
+            f"Analysis error: {exc}",
+            err=True,
+        )
+        raise typer.Exit(code=1) from exc
+
+    analysis = result.analysis
+    request = result.normalized_request
+
+    typer.echo(f"Request       : {request.method} {request.path}")
+    typer.echo(
+        "Payload fields: "
+        + ", ".join(request.body.keys())
+    )
+    typer.echo(f"Decision      : {analysis.decision}")
+
+    if analysis.old_field is not None:
+        typer.echo(f"Old field     : {analysis.old_field}")
+
+    if analysis.new_field is not None:
+        typer.echo(f"Required field: {analysis.new_field}")
+
+    if analysis.score is not None:
+        typer.echo(f"Score         : {analysis.score:.3f}")
+
+    if analysis.confidence is not None:
+        typer.echo(f"Confidence    : {analysis.confidence}")
+
+    if not analysis.safe_to_patch:
+        typer.echo("")
+        typer.echo("Patch suggestion was not generated.")
+
+        if analysis.reasons:
+            typer.echo("")
+            typer.echo("Reasons:")
+
+            for reason in analysis.reasons:
+                typer.echo(f"- {reason}")
+
+        typer.echo("")
+        typer.echo("No source files were changed.")
+
+        raise typer.Exit(code=1)
+
+    try:
+        suggestion = build_python_patch_suggestion(
+            result
+        )
+    except PythonDiffError as exc:
+        typer.echo(
+            f"Diff generation error: {exc}",
+            err=True,
+        )
+        raise typer.Exit(code=1) from exc
+
+    typer.echo("")
+    typer.echo("Suggested patch:")
+    typer.echo("")
+    typer.echo(
+        suggestion.unified_diff.rstrip()
+    )
+    typer.echo("")
+    typer.echo(
+        f"Suggested rename: "
+        f"{suggestion.old_field} -> "
+        f"{suggestion.new_field}"
+    )
+    typer.echo("")
+    typer.echo("No source files were changed.")
 
 
 if __name__ == "__main__":
