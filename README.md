@@ -1,6 +1,6 @@
 # API Drift Healer
 
-**Current release: V1.2 - Newman Runtime Validation**
+**Current release: V1.3 - Pytest / Requests Adapter**
 
 API Drift Healer detects request-field drift between OpenAPI contracts and API tests.
 
@@ -9,10 +9,12 @@ It currently supports:
 - YAML API test cases
 - Postman Collection v2.1 files
 - VS Code REST Client-style `.http` files
+- pytest-style Python API tests that use `requests`
 - deterministic field matching
 - safe patch decisions
 - human-readable diffs
-- separate healed output files
+- separate healed output files for writable adapters
+- suggestion-only Python diffs that never overwrite source files
 - dry-run analysis
 - Newman runtime validation
 - optional Postman environment files
@@ -29,6 +31,113 @@ userEmail -> email_address
 ```
 
 The matching decision is deterministic. No LLM decides whether a patch is safe.
+
+---
+
+
+## Pytest / Requests Adapter
+
+V1.3 adds static analysis for simple Python API tests that use the `requests` library.
+
+Example outdated test:
+
+```python
+import requests
+
+
+def test_create_user() -> None:
+    payload = {
+        "name": "Test User",
+        "userEmail": "qa_user@example.com",
+    }
+
+    response = requests.post(
+        "http://localhost:3000/users",
+        json=payload,
+    )
+
+    assert response.status_code == 201
+```
+
+The OpenAPI contract requires `email_address`.
+
+The adapter parses the Python file with the standard-library AST. It does not import or execute the test file.
+
+```text
+Python test file
+        |
+        v
+AST request and payload parser
+        |
+        v
+NormalizedRequest
+        |
+        v
+OpenAPI path and method resolver
+        |
+        v
+Deterministic drift analyzer
+        |
+        v
+SAFE_PATCH / REJECT
+        |
+        v
+Suggestion-only unified diff
+        |
+        v
+Original Python source unchanged
+```
+
+The V1.3 safety rule is:
+
+```text
+Detect. Suggest. Never overwrite.
+```
+
+Run the example:
+
+```bash
+api-drift-healer pytest analyze \
+  --file examples/pytest_requests/test_create_user.py \
+  --openapi examples/pytest_requests/openapi.yaml
+```
+
+Expected result:
+
+```text
+Request       : POST /users
+Payload fields: name, userEmail
+Decision      : SAFE_PATCH
+Old field     : userEmail
+Required field: email_address
+Score         : 0.772
+Confidence    : High
+```
+
+The CLI prints a unified diff:
+
+```diff
+ payload = {
+     "name": "Test User",
+-    "userEmail": "qa_user@example.com",
++    "email_address": "qa_user@example.com",
+ }
+```
+
+The diff is only a suggestion. The original Python file is never modified.
+
+Verify the source remains unchanged:
+
+```bash
+grep -n "userEmail\|email_address" \
+  examples/pytest_requests/test_create_user.py
+```
+
+Expected result:
+
+```text
+"userEmail": "qa_user@example.com",
+```
 
 ---
 
@@ -391,7 +500,7 @@ python -m pip install -e .
 
 ### Newman Runtime Validation
 
-Python is sufficient for static YAML, Postman, and `.http` healing.
+Python is sufficient for static YAML, Postman, `.http`, and Python requests analysis.
 
 Node.js and Newman are additionally required for Postman runtime validation:
 
@@ -409,10 +518,34 @@ api-drift-healer --help
 api-drift-healer heal --help
 api-drift-healer postman heal --help
 api-drift-healer http heal --help
+api-drift-healer pytest --help
+api-drift-healer pytest analyze --help
 ```
 
 ---
 
+
+
+## Pytest / Requests CLI Options
+
+```text
+--file     Python API test file. Required.
+--openapi  OpenAPI YAML or JSON file. Required.
+```
+
+Example:
+
+```bash
+api-drift-healer pytest analyze \
+  --file examples/pytest_requests/test_create_user.py \
+  --openapi examples/pytest_requests/openapi.yaml
+```
+
+The command analyzes exactly one supported `requests` call and prints a suggested unified diff.
+
+It never writes a modified Python file.
+
+---
 
 ## HTTP File CLI Options
 
@@ -513,6 +646,12 @@ displayName -> email_address REJECT
 firstName -> last_name       REJECT
 ```
 
+For Python requests tests:
+
+```text
+Detect. Suggest. Never overwrite.
+```
+
 For Postman collections:
 
 ```text
@@ -530,6 +669,24 @@ No PASS, no PR.
 
 ## Currently Supported
 
+
+
+### Pytest / Python Requests
+
+- Python files parsed with the standard-library AST
+- `requests.post`, `requests.put`, and `requests.patch`
+- literal URL strings passed positionally or with `url=`
+- literal JSON-compatible dictionaries
+- named payload variables passed with `json=payload`
+- inline dictionaries passed with `json={...}`
+- exact OpenAPI path and HTTP method matching
+- one top-level field rename
+- deterministic safety scoring
+- unified source diff
+- single- and double-quote preservation
+- source-file protection
+- suggestion-only behavior
+- exactly one supported request per analyzed file
 
 ### `.http` Files
 
@@ -588,6 +745,32 @@ No PASS, no PR.
 
 ## Current Limitations
 
+### Pytest / Python Requests
+
+The V1.3 Python adapter is intentionally suggestion-only.
+
+It currently supports exactly one simple `requests.post`, `requests.put`, or `requests.patch` call per analyzed file.
+
+It does not currently support:
+
+- automatic Python source rewrites
+- multiple supported request calls in one file
+- dynamic or f-string request URLs
+- payloads returned by functions
+- fixture-generated payloads
+- dynamic values inside payload dictionaries
+- `requests.Session`
+- `requests.request`
+- `httpx`
+- async HTTP clients
+- nested JSON field repairs
+- multiple field repairs in one request
+- OpenAPI path-template matching
+- OpenAPI `$ref`, `allOf`, `oneOf`, or `anyOf` request schemas
+
+Unsupported patterns are rejected or skipped. The Python file is never imported, executed, or modified.
+
+### `.http` Files
 
 The V1.1 `.http` adapter currently supports one request per file.
 
@@ -603,6 +786,8 @@ It does not currently support:
 - nested JSON field repairs
 - multiple field repairs in one request
 - JSON arrays as the top-level request body
+
+### Postman
 
 The Postman adapter does not currently support:
 
@@ -643,29 +828,30 @@ OpenAPI Resolver
 ResolvedRequestSchema
     |
     v
-Drift Analyzer
+Deterministic Drift Analyzer
     |
     v
-SAFE_PATCH / REJECTED / NO_DRIFT / COMPLEX_DRIFT
+SAFE_PATCH / REJECT / NO_DRIFT / COMPLEX_DRIFT
     |
-    v
-Format-specific Patcher
-    |
-    v
-Optional Runtime Validator
-    |
-    v
-Newman PASS / FAIL
-    |
-    v
-Validated Output
+    +------------------------------+
+    |                              |
+    v                              v
+Format-specific Patcher      Python Diff Builder
+    |                              |
+    v                              v
+Optional Runtime Validator   Suggestion-only Diff
+    |                              |
+    v                              v
+Validated Output             Source Unchanged
 ```
 
-The runtime validator is optional and format-specific.
+Runtime validation is optional and format-specific.
 
-The deterministic drift analyzer remains independent from Newman and Postman.
+The Python adapter stops at a suggestion-only diff. It does not write a healed Python file.
 
-This makes it possible to add other adapters later without rebuilding the safety engine.
+The deterministic drift analyzer remains independent from Newman, Postman, `.http`, YAML, and Python source formats.
+
+This makes it possible to add other adapters without rebuilding the safety engine.
 
 ---
 
@@ -686,7 +872,10 @@ api-drift-healer-demo/
 |   |-- newman_runner.py
 |   |-- openapi_resolver.py
 |   |-- postman_healer.py
-|   `-- postman_validator.py
+|   |-- postman_validator.py
+|   |-- python_diff.py
+|   |-- python_parser.py
+|   `-- python_request_analyzer.py
 |-- examples/
 |   |-- basic_yaml/
 |   |   |-- README.md
@@ -696,6 +885,10 @@ api-drift-healer-demo/
 |   |   |-- README.md
 |   |   |-- create-user.http
 |   |   `-- openapi.yaml
+|   |-- pytest_requests/
+|   |   |-- README.md
+|   |   |-- openapi.yaml
+|   |   `-- test_create_user.py
 |   `-- postman/
 |       |-- README.md
 |       |-- create-user.postman_collection.json
@@ -711,6 +904,12 @@ api-drift-healer-demo/
 |-- test_newman_runner.py
 |-- test_postman_validator.py
 |-- test_postman_validation_cli.py
+|-- tests/
+|   |-- __init__.py
+|   |-- test_python_cli.py
+|   |-- test_python_diff.py
+|   |-- test_python_parser.py
+|   `-- test_python_request_analyzer.py
 |-- pyproject.toml
 `-- README.md
 ```
@@ -725,10 +924,10 @@ Run all tests:
 python -m unittest discover
 ```
 
-Current V1.2 test suite:
+Current V1.3 test suite:
 
 ```text
-179 automated tests
+198 automated tests
 ```
 
 Coverage includes:
@@ -764,6 +963,17 @@ Coverage includes:
 - healed-pass output requirement
 - validated Postman output protection
 - real Flask and Newman runtime demo
+- Python AST request and payload parsing
+- literal payload value extraction
+- full URL to OpenAPI path mapping
+- Python request OpenAPI analysis
+- safe Python field-rename decisions
+- suggestion-only unified Python diffs
+- key-only token replacement
+- single- and double-quote preservation
+- unsafe Python patch rejection
+- Python CLI behavior
+- Python source-file preservation
 
 ---
 
@@ -808,19 +1018,24 @@ V1.2 DONE Newman validation CLI options
 V1.2 DONE Real Flask and Newman runtime demo
 V1.2 DONE Windows, macOS, and Linux runner support
 V1.2 DONE 179 automated tests
+
+V1.3 DONE Python AST request and payload parser
+V1.3 DONE `requests.post`, `requests.put`, and `requests.patch` detection
+V1.3 DONE Literal URL and JSON-compatible payload extraction
+V1.3 DONE OpenAPI path and method mapping
+V1.3 DONE Existing deterministic safety engine reuse
+V1.3 DONE Suggestion-only unified Python diff
+V1.3 DONE Quote-style preservation
+V1.3 DONE Python source-file protection
+V1.3 DONE Pytest / Requests CLI
+V1.3 DONE Runnable Python example
+V1.3 DONE 198 automated tests
 ```
 
 ---
 
 ## Roadmap
 
-
-### V1.3 - Pytest / Requests Adapter
-
-- locate simple Python request payloads
-- associate payloads with URLs and methods
-- preserve surrounding test logic
-- reject risky rewrites
 
 ### V1.4 - Multiple Requests and Tests
 
