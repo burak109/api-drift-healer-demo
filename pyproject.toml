@@ -15,6 +15,11 @@ dependencies = [
     "typer",
 ]
 
+[project.optional-dependencies]
+pytest = [
+    "pytest",
+]
+
 [project.scripts]
 api-drift-healer = "api_drift_healer.cli:app"
 

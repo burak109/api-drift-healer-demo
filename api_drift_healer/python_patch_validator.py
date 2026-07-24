@@ -84,7 +84,7 @@ def validate_python_patch(
 
     try:
         file_descriptor, temporary_name = tempfile.mkstemp(
-            prefix=f".api_drift_healer_{source_path.stem}_",
+            prefix=f"api_drift_healer_{source_path.stem}_",
             suffix=".py",
             dir=source_path.parent,
             text=True,
