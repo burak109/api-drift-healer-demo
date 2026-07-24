@@ -55,7 +55,7 @@ def build_python_patch_suggestion(
 
     try:
         original_source = result.source_path.read_text(
-            encoding="utf-8",
+            encoding="utf-8-sig",
         )
     except OSError as exc:
         raise PythonDiffError(
