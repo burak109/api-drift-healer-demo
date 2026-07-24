@@ -330,7 +330,7 @@ def parse_python_file(
 
     try:
         source = path.read_text(
-            encoding="utf-8",
+            encoding="utf-8-sig",
         )
     except OSError as exc:
         raise PythonParseError(
