@@ -1,6 +1,6 @@
 # API Drift Healer
 
-**Current release: V1.4 - Multiple Requests and Tests**
+**Current release: V1.4.1 - macOS Test Portability**
 
 API Drift Healer detects request-field drift between OpenAPI contracts and API tests.
 
