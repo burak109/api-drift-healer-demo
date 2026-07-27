@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "api-drift-healer"
-version = "1.3.0"
+version = "1.4.0"
 description = "A local-first CLI for safely detecting and healing OpenAPI drift in YAML tests, Postman collections, .http files, and Python requests tests."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,6 +13,11 @@ dependencies = [
     "requests",
     "PyYAML",
     "typer",
+]
+
+[project.optional-dependencies]
+pytest = [
+    "pytest",
 ]
 
 [project.scripts]

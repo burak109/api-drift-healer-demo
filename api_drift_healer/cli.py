@@ -30,6 +30,17 @@ from api_drift_healer.python_diff import (
     PythonDiffError,
     build_python_patch_suggestion,
 )
+from api_drift_healer.python_batch_report import (
+    build_python_batch_report,
+    format_python_batch_report,
+)
+from api_drift_healer.python_batch_validator import (
+    validate_python_test_directory_patches,
+)
+from api_drift_healer.python_patch_validator import (
+    PytestNotAvailableError,
+    PythonPatchValidationError,
+)
 from api_drift_healer.python_request_analyzer import (
     PythonRequestAnalysisError,
     analyze_python_request_file,
@@ -835,6 +846,86 @@ def analyze_pytest_request(
     )
     typer.echo("")
     typer.echo("No source files were changed.")
+
+
+@pytest_app.command("batch")
+def batch_pytest_requests(
+    directory: Path = typer.Option(
+        ...,
+        "--directory",
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        readable=True,
+        resolve_path=True,
+        help="Directory containing Python API test files.",
+    ),
+    openapi: Path = typer.Option(
+        ...,
+        "--openapi",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=True,
+        help="Path to the OpenAPI contract file.",
+    ),
+    timeout: float = typer.Option(
+        30,
+        "--timeout",
+        min=0.1,
+        help="Maximum pytest validation time per patch.",
+    ),
+) -> None:
+    """
+    Scan, analyze, patch-plan and validate Python API tests.
+
+    Suggested patches are validated using temporary files.
+    Original source files are never modified.
+    """
+
+    typer.echo("")
+    typer.echo("API Drift Healer - Pytest Batch")
+    typer.echo("")
+    typer.echo(f"Test directory: {directory}")
+    typer.echo(f"OpenAPI       : {openapi}")
+    typer.echo(f"Timeout       : {timeout:g} seconds")
+    typer.echo("Mode          : SUGGEST_AND_VALIDATE")
+    typer.echo("")
+
+    try:
+        validation_result = (
+            validate_python_test_directory_patches(
+                directory=directory,
+                openapi_path=openapi,
+                timeout_seconds=timeout,
+            )
+        )
+    except (
+        PytestNotAvailableError,
+        PythonPatchValidationError,
+    ) as exc:
+        typer.echo(
+            f"Validation error: {exc}",
+            err=True,
+        )
+        raise typer.Exit(code=1) from exc
+
+    report = build_python_batch_report(
+        validation_result
+    )
+
+    typer.echo(
+        format_python_batch_report(report)
+    )
+    typer.echo("")
+    typer.echo("No source files were changed.")
+
+    if (
+        report.pipeline_errors > 0
+        or report.validation_failures > 0
+    ):
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":

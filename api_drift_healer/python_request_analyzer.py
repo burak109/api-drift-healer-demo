@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -63,6 +63,48 @@ def extract_request_path(url: str) -> str:
     return path
 
 
+def analyze_python_request(
+    source_path: str | Path,
+    request: PythonRequest,
+    openapi_path: str | Path,
+) -> PythonRequestAnalysisResult:
+    """Analyze one already-parsed Python request."""
+
+    resolved_source_path = Path(
+        source_path
+    ).expanduser().resolve()
+
+    request_path = extract_request_path(request.url)
+
+    normalized_request = NormalizedRequest(
+        name=(
+            f"{resolved_source_path.name}:"
+            f"{request.line_number}"
+        ),
+        method=request.method,
+        path=request_path,
+        body=request.payload.values,
+    )
+
+    schema = resolve_request_schema_file(
+        openapi_path=openapi_path,
+        method=normalized_request.method,
+        path=normalized_request.path,
+    )
+
+    analysis = analyze_request_drift(
+        request=normalized_request,
+        schema=schema,
+    )
+
+    return PythonRequestAnalysisResult(
+        source_path=resolved_source_path,
+        request=request,
+        normalized_request=normalized_request,
+        analysis=analysis,
+    )
+
+
 def analyze_python_request_file(
     python_path: str | Path,
     openapi_path: str | Path,
@@ -70,7 +112,7 @@ def analyze_python_request_file(
     """
     Analyze one literal requests call without changing the Python file.
 
-    V1.3 initially supports exactly one requests.post, requests.put,
+    V1.3 supports exactly one requests.post, requests.put,
     or requests.patch call per analyzed Python file.
     """
 
@@ -102,30 +144,8 @@ def analyze_python_request_file(
             f"Found: {len(parsed.requests)}"
         )
 
-    request = parsed.requests[0]
-    request_path = extract_request_path(request.url)
-
-    normalized_request = NormalizedRequest(
-        name=f"{source_path.name}:{request.line_number}",
-        method=request.method,
-        path=request_path,
-        body=request.payload.values,
-    )
-
-    schema = resolve_request_schema_file(
-        openapi_path=openapi_path,
-        method=normalized_request.method,
-        path=normalized_request.path,
-    )
-
-    analysis = analyze_request_drift(
-        request=normalized_request,
-        schema=schema,
-    )
-
-    return PythonRequestAnalysisResult(
+    return analyze_python_request(
         source_path=source_path,
-        request=request,
-        normalized_request=normalized_request,
-        analysis=analysis,
+        request=parsed.requests[0],
+        openapi_path=openapi_path,
     )

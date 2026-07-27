@@ -37,6 +37,7 @@ class PythonRequest:
     url: str
     payload: PythonPayload
     line_number: int
+    test_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,7 @@ class PythonRequestParser(ast.NodeVisitor):
         self._dict_assignments: dict[str, ast.Dict] = {}
         self._requests: list[PythonRequest] = []
         self._skipped_reasons: list[str] = []
+        self._test_name_stack: list[str | None] = []
 
     def parse(self, source: str) -> PythonParseResult:
         """Parse Python source without executing it."""
@@ -72,6 +74,41 @@ class PythonRequestParser(ast.NodeVisitor):
             requests=tuple(self._requests),
             skipped_reasons=tuple(self._skipped_reasons),
         )
+
+    def visit_FunctionDef(
+        self,
+        node: ast.FunctionDef,
+    ) -> None:
+        """Track requests declared inside synchronous test functions."""
+
+        self._visit_function(node)
+
+    def visit_AsyncFunctionDef(
+        self,
+        node: ast.AsyncFunctionDef,
+    ) -> None:
+        """Track requests declared inside asynchronous test functions."""
+
+        self._visit_function(node)
+
+    def _visit_function(
+        self,
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+    ) -> None:
+        """Visit a function while preserving its test context."""
+
+        test_name = (
+            node.name
+            if node.name.startswith("test_")
+            else None
+        )
+
+        self._test_name_stack.append(test_name)
+
+        try:
+            self.generic_visit(node)
+        finally:
+            self._test_name_stack.pop()
 
     def visit_Assign(self, node: ast.Assign) -> None:
         """Store simple variable assignments containing literal dictionaries."""
@@ -128,6 +165,11 @@ class PythonRequestParser(ast.NodeVisitor):
                 url=url,
                 payload=payload,
                 line_number=node.lineno,
+                test_name=(
+                    self._test_name_stack[-1]
+                    if self._test_name_stack
+                    else None
+                ),
             )
         )
 
@@ -288,7 +330,7 @@ def parse_python_file(
 
     try:
         source = path.read_text(
-            encoding="utf-8",
+            encoding="utf-8-sig",
         )
     except OSError as exc:
         raise PythonParseError(
