@@ -28,7 +28,7 @@ class PythonTestScannerTests(unittest.TestCase):
 
     def test_finds_test_prefix_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
+            root = Path(temp_dir).resolve()
 
             self._write_file(
                 root,
@@ -55,7 +55,7 @@ class PythonTestScannerTests(unittest.TestCase):
 
     def test_finds_test_suffix_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
+            root = Path(temp_dir).resolve()
 
             self._write_file(
                 root,
@@ -78,7 +78,7 @@ class PythonTestScannerTests(unittest.TestCase):
 
     def test_scans_nested_directories(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
+            root = Path(temp_dir).resolve()
 
             self._write_file(
                 root,
@@ -106,7 +106,7 @@ class PythonTestScannerTests(unittest.TestCase):
 
     def test_ignores_excluded_directories(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
+            root = Path(temp_dir).resolve()
 
             self._write_file(
                 root,
@@ -141,7 +141,7 @@ class PythonTestScannerTests(unittest.TestCase):
 
     def test_returns_files_in_deterministic_order(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
+            root = Path(temp_dir).resolve()
 
             self._write_file(
                 root,
@@ -175,7 +175,7 @@ class PythonTestScannerTests(unittest.TestCase):
     def test_rejects_missing_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             missing_directory = (
-                Path(temp_dir)
+                Path(temp_dir).resolve()
                 / "missing-tests"
             )
 
