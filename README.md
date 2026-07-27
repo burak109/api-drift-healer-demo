@@ -1,6 +1,6 @@
 # API Drift Healer
 
-**Current release: V1.3 - Pytest / Requests Adapter**
+**Current release: V1.4 - Multiple Requests and Tests**
 
 API Drift Healer detects request-field drift between OpenAPI contracts and API tests.
 
@@ -15,6 +15,10 @@ It currently supports:
 - human-readable diffs
 - separate healed output files for writable adapters
 - suggestion-only Python diffs that never overwrite source files
+- recursive Python test-directory scanning
+- multiple request analysis across files
+- targeted pytest validation in temporary files
+- aggregate batch reports
 - dry-run analysis
 - Newman runtime validation
 - optional Postman environment files
@@ -37,7 +41,7 @@ The matching decision is deterministic. No LLM decides whether a patch is safe.
 
 ## Pytest / Requests Adapter
 
-V1.3 adds static analysis for simple Python API tests that use the `requests` library.
+V1.3 added static analysis for simple Python API tests that use the `requests` library. The single-file `pytest analyze` command remains available in V1.4.
 
 Example outdated test:
 
@@ -88,7 +92,7 @@ Suggestion-only unified diff
 Original Python source unchanged
 ```
 
-The V1.3 safety rule is:
+The Python adapter safety rule is:
 
 ```text
 Detect. Suggest. Never overwrite.
@@ -137,6 +141,90 @@ Expected result:
 
 ```text
 "userEmail": "qa_user@example.com",
+```
+
+---
+
+## V1.4 - Multiple Requests and Tests
+
+V1.4 adds a batch pipeline for Python API tests.
+
+Instead of analyzing one file at a time, the CLI can scan a test directory, discover supported `requests` calls, compare each request with OpenAPI, plan safe patches, validate those patches with pytest, and print one aggregate report.
+
+```text
+Python test directory
+        |
+        v
+Recursive test-file scanner
+        |
+        v
+Multiple request discovery
+        |
+        v
+OpenAPI path and method matching
+        |
+        v
+Deterministic drift analysis
+        |
+        v
+Safe patch planning
+        |
+        v
+Targeted pytest validation in temporary files
+        |
+        v
+Aggregate batch report
+        |
+        v
+Original Python source files unchanged
+```
+
+The batch command only plans patches for `SAFE_PATCH` decisions. Each suggested patch is written to a temporary sibling file and the relevant pytest test function is executed against that temporary file.
+
+The original source file is never overwritten.
+
+Run the included V1.4 example:
+
+```bash
+api-drift-healer pytest batch \
+  --directory examples/python_batch_v1_4 \
+  --openapi examples/python_batch_v1_4/openapi.json \
+  --timeout 30
+```
+
+Expected report:
+
+```text
+Python Batch Report
+-------------------
+Files scanned: 3
+Requests discovered: 3
+Requests analyzed: 3
+No drift: 2
+Drift detected: 1
+Safe patch decisions: 1
+Rejected drift: 0
+Complex drift: 0
+Patches generated: 1
+Patches validated: 1
+Validation failures: 0
+Pipeline errors: 0
+
+No source files were changed.
+```
+
+The included demo contains:
+
+- two requests that already match OpenAPI
+- one request that still sends `userEmail`
+- one safe `userEmail -> email_address` patch
+- one targeted pytest validation
+- zero source-file changes
+
+The V1.4 safety flow is:
+
+```text
+Detect. Suggest. Validate. Never overwrite.
 ```
 
 ---
@@ -498,6 +586,18 @@ python -m venv .venv
 python -m pip install -e .
 ```
 
+### Pytest Runtime Validation
+
+Static Python analysis works with the standard installation.
+
+The V1.4 batch command uses pytest to validate suggested patches in temporary files:
+
+```bash
+python -m pip install -e ".[pytest]"
+```
+
+The `pytest` extra is required for `api-drift-healer pytest batch`. It is not required for the single-file static `pytest analyze` command.
+
 ### Newman Runtime Validation
 
 Python is sufficient for static YAML, Postman, `.http`, and Python requests analysis.
@@ -520,6 +620,7 @@ api-drift-healer postman heal --help
 api-drift-healer http heal --help
 api-drift-healer pytest --help
 api-drift-healer pytest analyze --help
+api-drift-healer pytest batch --help
 ```
 
 ---
@@ -527,6 +628,8 @@ api-drift-healer pytest analyze --help
 
 
 ## Pytest / Requests CLI Options
+
+### Analyze One File
 
 ```text
 --file     Python API test file. Required.
@@ -541,9 +644,44 @@ api-drift-healer pytest analyze \
   --openapi examples/pytest_requests/openapi.yaml
 ```
 
-The command analyzes exactly one supported `requests` call and prints a suggested unified diff.
+The `analyze` command expects exactly one supported `requests` call and prints a suggested unified diff.
 
 It never writes a modified Python file.
+
+### Analyze and Validate a Directory
+
+```text
+--directory  Directory containing Python API test files. Required.
+--openapi    OpenAPI YAML or JSON file. Required.
+--timeout    Maximum pytest validation time per patch. Default: 30 seconds.
+```
+
+Example:
+
+```bash
+api-drift-healer pytest batch \
+  --directory examples/python_batch_v1_4 \
+  --openapi examples/python_batch_v1_4/openapi.json \
+  --timeout 30
+```
+
+The `batch` command:
+
+- recursively scans supported Python test files
+- discovers every supported request call
+- analyzes each request against OpenAPI
+- plans only deterministic safe patches
+- validates each planned patch with targeted pytest execution
+- prints an aggregate report
+- never changes the original source files
+
+Exit behavior:
+
+```text
+0  The batch completed without pipeline errors or validation failures.
+1  A pipeline error occurred, pytest was unavailable, or a patch validation failed.
+2  Typer rejected invalid CLI input or a required path was missing.
+```
 
 ---
 
@@ -680,13 +818,23 @@ No PASS, no PR.
 - named payload variables passed with `json=payload`
 - inline dictionaries passed with `json={...}`
 - exact OpenAPI path and HTTP method matching
-- one top-level field rename
+- one top-level field rename per request
 - deterministic safety scoring
-- unified source diff
+- unified source diffs
 - single- and double-quote preservation
+- UTF-8 and UTF-8 BOM source files
 - source-file protection
 - suggestion-only behavior
-- exactly one supported request per analyzed file
+- recursive discovery of `test_*.py` and `*_test.py`
+- nested test directories
+- multiple supported requests across files
+- multiple supported requests inside one file
+- pytest test-function and line-number context
+- safe per-request patch planning
+- targeted pytest validation in temporary files
+- validation timeout and tooling-error handling
+- temporary-file cleanup
+- aggregate batch reporting
 
 ### `.http` Files
 
@@ -747,14 +895,13 @@ No PASS, no PR.
 
 ### Pytest / Python Requests
 
-The V1.3 Python adapter is intentionally suggestion-only.
+The Python adapter is intentionally suggestion-only. It never overwrites a Python source file.
 
-It currently supports exactly one simple `requests.post`, `requests.put`, or `requests.patch` call per analyzed file.
+The single-file `pytest analyze` command expects exactly one supported request call. The V1.4 `pytest batch` command scans multiple files and analyzes every supported request it discovers.
 
 It does not currently support:
 
 - automatic Python source rewrites
-- multiple supported request calls in one file
 - dynamic or f-string request URLs
 - payloads returned by functions
 - fixture-generated payloads
@@ -767,8 +914,10 @@ It does not currently support:
 - multiple field repairs in one request
 - OpenAPI path-template matching
 - OpenAPI `$ref`, `allOf`, `oneOf`, or `anyOf` request schemas
+- combining multiple patches into one rewritten source file
+- automatic Pull Request creation for Python tests
 
-Unsupported patterns are rejected or skipped. The Python file is never imported, executed, or modified.
+Unsupported patterns are rejected or skipped. Python files are never imported or executed during static analysis. Only temporary suggested files are executed during targeted pytest validation.
 
 ### `.http` Files
 
@@ -847,7 +996,7 @@ Validated Output             Source Unchanged
 
 Runtime validation is optional and format-specific.
 
-The Python adapter stops at a suggestion-only diff. It does not write a healed Python file.
+The Python adapter stops at suggestion and validation. It does not write a healed Python source file. The V1.4 batch pipeline validates suggested patches in temporary files and deletes those files after execution.
 
 The deterministic drift analyzer remains independent from Newman, Postman, `.http`, YAML, and Python source formats.
 
@@ -873,43 +1022,31 @@ api-drift-healer-demo/
 |   |-- openapi_resolver.py
 |   |-- postman_healer.py
 |   |-- postman_validator.py
+|   |-- python_batch_analyzer.py
+|   |-- python_batch_patch_planner.py
+|   |-- python_batch_report.py
+|   |-- python_batch_scanner.py
+|   |-- python_batch_validator.py
 |   |-- python_diff.py
 |   |-- python_parser.py
-|   `-- python_request_analyzer.py
+|   |-- python_patch_validator.py
+|   |-- python_request_analyzer.py
+|   `-- python_test_scanner.py
 |-- examples/
 |   |-- basic_yaml/
-|   |   |-- README.md
-|   |   |-- api_test_case.yaml
-|   |   `-- openapi.yaml
 |   |-- http/
-|   |   |-- README.md
-|   |   |-- create-user.http
-|   |   `-- openapi.yaml
+|   |-- postman/
 |   |-- pytest_requests/
-|   |   |-- README.md
-|   |   |-- openapi.yaml
-|   |   `-- test_create_user.py
-|   `-- postman/
-|       |-- README.md
-|       |-- create-user.postman_collection.json
-|       `-- openapi.yaml
+|   `-- python_batch_v1_4/
+|       |-- openapi.json
+|       |-- test_create_second_user.py
+|       |-- test_create_user_current.py
+|       `-- test_create_user_drift.py
 |-- scripts/
-|   |-- demo_basic_yaml.sh
-|   |-- demo_http.sh
-|   `-- demo_postman.sh
+|-- tests/
 |-- auto_healer.py
 |-- field_matcher.py
 |-- mock_server.py
-|-- test_runner.py
-|-- test_newman_runner.py
-|-- test_postman_validator.py
-|-- test_postman_validation_cli.py
-|-- tests/
-|   |-- __init__.py
-|   |-- test_python_cli.py
-|   |-- test_python_diff.py
-|   |-- test_python_parser.py
-|   `-- test_python_request_analyzer.py
 |-- pyproject.toml
 `-- README.md
 ```
@@ -924,10 +1061,10 @@ Run all tests:
 python -m unittest discover
 ```
 
-Current V1.3 test suite:
+Current V1.4 test suite:
 
 ```text
-198 automated tests
+234 automated tests
 ```
 
 Coverage includes:
@@ -974,6 +1111,18 @@ Coverage includes:
 - unsafe Python patch rejection
 - Python CLI behavior
 - Python source-file preservation
+- recursive Python test-directory scanning
+- nested test-file discovery and exclusion rules
+- multiple request extraction across files
+- test-function and line-number context
+- batch OpenAPI request analysis
+- safe batch patch planning
+- targeted pytest subprocess validation
+- validation timeout and missing-pytest handling
+- temporary-file cleanup
+- aggregate batch reporting
+- Pytest batch CLI behavior
+- UTF-8 BOM parsing and patch generation
 
 ---
 
@@ -1030,6 +1179,21 @@ V1.3 DONE Python source-file protection
 V1.3 DONE Pytest / Requests CLI
 V1.3 DONE Runnable Python example
 V1.3 DONE 198 automated tests
+
+V1.4 DONE Recursive Python test-directory scanner
+V1.4 DONE Multiple request discovery across files
+V1.4 DONE Multiple request discovery inside one file
+V1.4 DONE Test-function and line-number context
+V1.4 DONE Batch OpenAPI request analysis
+V1.4 DONE Safe per-request patch planning
+V1.4 DONE Targeted pytest patch validation
+V1.4 DONE Temporary-file validation without source changes
+V1.4 DONE Validation timeout and tooling-error handling
+V1.4 DONE Aggregate batch report
+V1.4 DONE Pytest batch CLI command
+V1.4 DONE UTF-8 BOM parsing and patch generation
+V1.4 DONE Runnable multi-test Python example
+V1.4 DONE 234 automated tests
 ```
 
 ---
@@ -1037,11 +1201,11 @@ V1.3 DONE 198 automated tests
 ## Roadmap
 
 
-### V1.4 - Multiple Requests and Tests
+### V1.5 - Multi-Adapter Batch Runs
 
-- select one request from multi-request `.http` files
+- support multiple requests in `.http` inputs
 - support multiple Postman requests in one healing run
-- produce a combined analysis report
+- produce combined reports across writable adapters
 - reject ambiguous cross-request patches
 
 ### V2 - CI Integration
