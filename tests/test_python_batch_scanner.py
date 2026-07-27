@@ -27,7 +27,7 @@ class PythonBatchScannerTests(unittest.TestCase):
 
     def test_collects_requests_from_multiple_test_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
+            root = Path(temp_dir).resolve()
 
             self._write_file(
                 root,
@@ -93,7 +93,7 @@ def test_update_user():
 
     def test_collects_multiple_requests_from_one_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
+            root = Path(temp_dir).resolve()
 
             self._write_file(
                 root,
@@ -144,7 +144,7 @@ def test_create_and_update_user():
 
     def test_continues_when_one_file_has_invalid_python(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
+            root = Path(temp_dir).resolve()
 
             self._write_file(
                 root,
@@ -188,7 +188,7 @@ def test_invalid(
 
     def test_returns_requests_in_deterministic_file_order(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
+            root = Path(temp_dir).resolve()
 
             for relative_path, method in (
                 ("z/test_last.py", "patch"),

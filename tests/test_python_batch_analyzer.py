@@ -86,7 +86,7 @@ class PythonBatchAnalyzerTests(unittest.TestCase):
 
     def test_analyzes_multiple_files_endpoints_and_methods(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
+            root = Path(temp_dir).resolve()
             tests_directory = root / "tests"
             openapi_path = self._write_openapi(root)
 
@@ -184,7 +184,7 @@ def test_update_profile():
 
     def test_continues_when_one_endpoint_cannot_be_resolved(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
+            root = Path(temp_dir).resolve()
             tests_directory = root / "tests"
             openapi_path = self._write_openapi(root)
 
@@ -257,7 +257,7 @@ def test_missing_endpoint():
 
     def test_preserves_scan_errors_and_analyzes_valid_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
+            root = Path(temp_dir).resolve()
             tests_directory = root / "tests"
             openapi_path = self._write_openapi(root)
 
