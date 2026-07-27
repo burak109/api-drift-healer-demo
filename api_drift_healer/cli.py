@@ -33,6 +33,7 @@ from api_drift_healer.python_diff import (
 from api_drift_healer.python_batch_report import (
     build_python_batch_report,
     format_python_batch_report,
+    format_python_batch_report_json,
 )
 from api_drift_healer.python_batch_validator import (
     validate_python_test_directory_patches,
@@ -884,6 +885,14 @@ def batch_pytest_requests(
         resolve_path=True,
         help="Write the batch report to a UTF-8 text file.",
     ),
+    report_json: Path | None = typer.Option(
+        None,
+        "--report-json",
+        file_okay=True,
+        dir_okay=False,
+        resolve_path=True,
+        help="Write the batch report as UTF-8 JSON.",
+    ),
 ) -> None:
     """
     Scan, analyze, patch-plan and validate Python API tests.
@@ -959,6 +968,33 @@ def batch_pytest_requests(
         typer.echo("")
         typer.echo(
             f"Report written: {report_file}"
+        )
+
+    if report_json is not None:
+        try:
+            report_json.parent.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+            report_json.write_text(
+                (
+                    format_python_batch_report_json(
+                        report
+                    )
+                    + "\n"
+                ),
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            typer.echo(
+                f"JSON report write error: {exc}",
+                err=True,
+            )
+            raise typer.Exit(code=1) from exc
+
+        typer.echo("")
+        typer.echo(
+            f"JSON report written: {report_json}"
         )
 
     if (

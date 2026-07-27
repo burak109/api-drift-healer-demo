@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+from dataclasses import asdict, dataclass
 from typing import Any
 
 
@@ -243,3 +244,21 @@ def format_python_batch_report(
     )
 
     return "\n".join(lines)
+
+
+def format_python_batch_report_json(
+    report: PythonBatchReport,
+) -> str:
+    """Format an aggregate report as machine-readable JSON."""
+
+    payload = {
+        "schema_version": 1,
+        **asdict(report),
+        "source_files_changed": False,
+    }
+
+    return json.dumps(
+        payload,
+        indent=2,
+        ensure_ascii=False,
+    )
