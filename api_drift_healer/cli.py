@@ -876,6 +876,14 @@ def batch_pytest_requests(
         min=0.1,
         help="Maximum pytest validation time per patch.",
     ),
+    report_file: Path | None = typer.Option(
+        None,
+        "--report-file",
+        file_okay=True,
+        dir_okay=False,
+        resolve_path=True,
+        help="Write the batch report to a UTF-8 text file.",
+    ),
 ) -> None:
     """
     Scan, analyze, patch-plan and validate Python API tests.
@@ -915,11 +923,43 @@ def batch_pytest_requests(
         validation_result
     )
 
-    typer.echo(
-        format_python_batch_report(report)
+    formatted_report = format_python_batch_report(
+        report
     )
+    source_preservation_message = (
+        "No source files were changed."
+    )
+
+    typer.echo(formatted_report)
     typer.echo("")
-    typer.echo("No source files were changed.")
+    typer.echo(source_preservation_message)
+
+    if report_file is not None:
+        try:
+            report_file.parent.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+            report_file.write_text(
+                (
+                    formatted_report
+                    + "\n\n"
+                    + source_preservation_message
+                    + "\n"
+                ),
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            typer.echo(
+                f"Report write error: {exc}",
+                err=True,
+            )
+            raise typer.Exit(code=1) from exc
+
+        typer.echo("")
+        typer.echo(
+            f"Report written: {report_file}"
+        )
 
     if (
         report.pipeline_errors > 0

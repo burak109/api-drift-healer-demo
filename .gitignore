@@ -19,3 +19,6 @@ dist/
 
 # Generated Postman collections
 *.healed.postman_collection.json
+
+# API Drift Healer CI reports
+.api-drift-healer/

@@ -145,6 +145,97 @@ class PythonBatchCliTests(unittest.TestCase):
         "validate_python_test_directory_patches",
         create=True,
     )
+    def test_batch_writes_report_file(
+        self,
+        validate_mock,
+        build_report_mock,
+        format_report_mock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            tests_directory = root / "tests"
+            tests_directory.mkdir()
+
+            openapi_path = root / "openapi.json"
+            openapi_path.write_text(
+                "{}",
+                encoding="utf-8",
+            )
+
+            report_path = (
+                root
+                / "artifacts"
+                / "api-drift-report.md"
+            )
+
+            validation_result = SimpleNamespace()
+            report = SimpleNamespace(
+                pipeline_errors=0,
+                validation_failures=0,
+            )
+            formatted_report = (
+                "Python Batch Report\n"
+                "Files scanned: 3\n"
+                "Requests analyzed: 4\n"
+                "Patches validated: 1"
+            )
+
+            validate_mock.return_value = validation_result
+            build_report_mock.return_value = report
+            format_report_mock.return_value = (
+                formatted_report
+            )
+
+            result = self.runner.invoke(
+                app,
+                [
+                    "pytest",
+                    "batch",
+                    "--directory",
+                    str(tests_directory),
+                    "--openapi",
+                    str(openapi_path),
+                    "--report-file",
+                    str(report_path),
+                ],
+            )
+
+            self.assertEqual(
+                result.exit_code,
+                0,
+                result.output,
+            )
+            self.assertTrue(report_path.is_file())
+            self.assertEqual(
+                report_path.read_text(
+                    encoding="utf-8"
+                ),
+                (
+                    formatted_report
+                    + "\n\n"
+                    + "No source files were changed.\n"
+                ),
+            )
+            self.assertIn(
+                f"Report written: {report_path}",
+                result.output,
+            )
+
+    @patch(
+        "api_drift_healer.cli."
+        "format_python_batch_report",
+        create=True,
+    )
+    @patch(
+        "api_drift_healer.cli."
+        "build_python_batch_report",
+        create=True,
+    )
+    @patch(
+        "api_drift_healer.cli."
+        "validate_python_test_directory_patches",
+        create=True,
+    )
     def test_batch_returns_failure_for_validation_failures(
         self,
         validate_mock,
