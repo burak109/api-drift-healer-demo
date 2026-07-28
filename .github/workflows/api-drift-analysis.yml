@@ -71,6 +71,102 @@ jobs:
           sha256sum --check \
             /tmp/api-drift-before.sha256
 
+      - name: Write pull request context
+        if: ${{ always() && github.event_name == 'pull_request' }}
+        shell: bash
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+          WORKFLOW_RUN_HEAD_SHA: ${{ github.sha }}
+          PULL_REQUEST_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import string
+          from pathlib import Path
+
+          def positive_integer(name: str) -> int:
+              value = int(os.environ[name])
+
+              if value <= 0:
+                  raise SystemExit(
+                      f"{name} must be positive."
+                  )
+
+              return value
+
+          def git_sha(name: str) -> str:
+              value = os.environ[name].strip().lower()
+
+              if (
+                  len(value) not in {40, 64}
+                  or any(
+                      character not in string.hexdigits
+                      for character in value
+                  )
+              ):
+                  raise SystemExit(
+                      f"{name} is not a valid Git SHA."
+                  )
+
+              return value
+
+          repository = os.environ[
+              "REPOSITORY"
+          ].strip()
+
+          if (
+              repository.count("/") != 1
+              or repository.startswith("/")
+              or repository.endswith("/")
+          ):
+              raise SystemExit(
+                  "REPOSITORY must use owner/name format."
+              )
+
+          payload = {
+              "schema_version": 1,
+              "pull_request_number": (
+                  positive_integer("PR_NUMBER")
+              ),
+              "repository": repository,
+              "workflow_run_id": (
+                  positive_integer(
+                      "WORKFLOW_RUN_ID"
+                  )
+              ),
+              "workflow_run_head_sha": git_sha(
+                  "WORKFLOW_RUN_HEAD_SHA"
+              ),
+              "pull_request_head_sha": git_sha(
+                  "PULL_REQUEST_HEAD_SHA"
+              ),
+          }
+
+          output_path = Path(
+              ".api-drift-healer/pr-context.json"
+          )
+          output_path.parent.mkdir(
+              parents=True,
+              exist_ok=True,
+          )
+          output_path.write_text(
+              json.dumps(
+                  payload,
+                  indent=2,
+                  ensure_ascii=False,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+
+          print(
+              "Pull request context created."
+          )
+          PY
+
       - name: Publish job summary
         if: always()
         shell: bash
@@ -95,6 +191,8 @@ jobs:
             .api-drift-healer/report.txt
             .api-drift-healer/report.md
             .api-drift-healer/report.json
+            .api-drift-healer/pr-context.json
+          include-hidden-files: true
           if-no-files-found: warn
           retention-days: 14
 

@@ -1,6 +1,6 @@
 # API Drift Healer
 
-**Current release: V2.0 - Read-Only CI Analysis**
+**Current release: V2.1 - Sticky Pull Request Reporting**
 
 API Drift Healer detects request-field drift between OpenAPI contracts and API tests.
 
@@ -22,6 +22,10 @@ It currently supports:
 - text, GitHub Markdown, and versioned JSON report files
 - read-only GitHub Actions analysis
 - GitHub job summaries and downloadable report artifacts
+- one sticky API drift report comment per pull request
+- deterministic comment creation and update behavior
+- isolated read-only analysis and write-enabled reporting workflows
+- validated pull request and workflow-run artifact context
 - SHA-256 source-preservation verification in CI
 - dry-run analysis
 - Newman runtime validation
@@ -285,6 +289,95 @@ Detect. Suggest. Report. Never overwrite.
 ```
 
 The V2.0 workflow does not modify API tests, push commits, open fix pull requests, or merge code automatically.
+
+---
+
+## V2.1 - Sticky Pull Request Reporting
+
+V2.1 publishes the validated API drift summary directly on the pull request.
+
+The reporting flow uses two isolated workflows:
+
+```text
+Pull request
+      |
+      v
+Read-only analysis workflow
+      |
+      v
+TXT + Markdown + JSON reports
+      |
+      v
+Validated workflow artifact
+      |
+      v
+Trusted reporting workflow
+      |
+      v
+Create or update one sticky PR comment
+```
+
+The analysis workflow keeps read-only repository access:
+
+```yaml
+permissions:
+  contents: read
+```
+
+The reporting workflow receives only the permissions needed to read the completed workflow artifact and manage the pull request comment:
+
+```yaml
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+```
+
+The write-enabled reporting workflow:
+
+- checks out reporter code only from the trusted `main` branch
+- does not check out or execute pull request code
+- downloads the completed analysis artifact by workflow run ID
+- validates the repository, workflow run ID, workflow SHA, and pull request number
+- validates the versioned JSON batch report before publishing
+- creates one marker comment when no report comment exists
+- updates the same comment on later analysis runs
+- rejects duplicate marker comments
+- rejects marker comments owned by an unexpected author
+
+The sticky marker is:
+
+```html
+<!-- api-drift-healer-report -->
+```
+
+The deterministic behavior is:
+
+```text
+No marker comment      -> CREATE
+One trusted marker     -> UPDATE
+Duplicate markers      -> REJECT
+Unexpected owner       -> REJECT
+```
+
+The reporting command is also available locally:
+
+```bash
+api-drift-pr-report \
+  --report-json .api-drift-healer/report.json \
+  --repository owner/repository \
+  --pull-request-number 13
+```
+
+The GitHub token is read from `GITHUB_TOKEN`. It is not accepted as a command-line argument or printed in command output.
+
+The V2.1 principle is:
+
+```text
+One PR. One report comment. Always updated.
+```
+
+V2.1 still does not modify source tests, create commits, push branches, open fix pull requests, or merge code.
 
 ---
 
@@ -1120,10 +1213,10 @@ Run all tests:
 python -m unittest discover
 ```
 
-Current V2.0 test suite:
+Current V2.1 test suite:
 
 ```text
-239 automated tests
+285 automated tests
 ```
 
 Coverage includes:
@@ -1280,12 +1373,21 @@ V2.0 DONE SHA-256 source-preservation verification
 V2.0 DONE Read-only `contents: read` permission
 V2.0 DONE 239 automated tests
 
-### V2.1 - Pull Request Reporting
+### V2.1 - Sticky Pull Request Reporting
 
-- publish or update one sticky analysis comment
-- summarize detected drift directly on the pull request
-- avoid duplicate bot comments
-- keep analysis read-only
+V2.1 DONE Validated JSON-to-Markdown PR report formatting
+V2.1 DONE Deterministic sticky comment create/update decisions
+V2.1 DONE Duplicate marker rejection
+V2.1 DONE Unexpected comment-owner rejection
+V2.1 DONE GitHub Issue Comments API client
+V2.1 DONE Paginated pull request comment discovery
+V2.1 DONE `api-drift-pr-report` console command
+V2.1 DONE Pull request context artifact generation
+V2.1 DONE Trusted workflow-event cross-validation
+V2.1 DONE Isolated analysis and reporting permissions
+V2.1 DONE Trusted `main` reporter checkout
+V2.1 DONE Pull request code execution protection
+V2.1 DONE 285 automated tests
 
 ### V2.2 - Validated Fix Pull Requests
 

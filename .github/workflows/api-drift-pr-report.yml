@@ -1,0 +1,338 @@
+name: API Drift Pull Request Report
+
+on:
+  workflow_run:
+    workflows:
+      - API Drift Analysis
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+jobs:
+  report:
+    name: Publish sticky pull request report
+    if: ${{ github.event.workflow_run.event == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout trusted reporter code
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install trusted reporter
+        run: |
+          python -m pip install \
+            --disable-pip-version-check \
+            .
+
+      - name: Download analysis artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: api-drift-healer-reports
+          path: ${{ runner.temp }}/api-drift-healer-reports
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Validate artifact context
+        id: context
+        shell: bash
+        env:
+          CONTEXT_PATH: ${{ runner.temp }}/api-drift-healer-reports/pr-context.json
+          REPORT_PATH: ${{ runner.temp }}/api-drift-healer-reports/report.json
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          WORKFLOW_EVENT_PATH: ${{ github.event_path }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          MAX_JSON_SIZE = 1_000_000
+
+          def regular_json_file(
+              environment_name: str,
+          ) -> Path:
+              path = Path(
+                  os.environ[environment_name]
+              )
+
+              if (
+                  path.is_symlink()
+                  or not path.is_file()
+              ):
+                  raise SystemExit(
+                      f"{environment_name} must "
+                      "reference a regular file."
+                  )
+
+              if path.stat().st_size > MAX_JSON_SIZE:
+                  raise SystemExit(
+                      f"{environment_name} exceeds "
+                      "the JSON size limit."
+                  )
+
+              return path
+
+          context_path = regular_json_file(
+              "CONTEXT_PATH"
+          )
+          report_path = regular_json_file(
+              "REPORT_PATH"
+          )
+
+          try:
+              context = json.loads(
+                  context_path.read_text(
+                      encoding="utf-8"
+                  )
+              )
+          except (
+              OSError,
+              UnicodeError,
+              json.JSONDecodeError,
+          ) as error:
+              raise SystemExit(
+                  "PR context is not valid JSON."
+              ) from error
+
+          if type(context) is not dict:
+              raise SystemExit(
+                  "PR context must contain an object."
+              )
+
+          if context.get("schema_version") != 1:
+              raise SystemExit(
+                  "Unsupported PR context schema."
+              )
+
+          pull_request_number = context.get(
+              "pull_request_number"
+          )
+
+          if (
+              type(pull_request_number) is not int
+              or pull_request_number <= 0
+          ):
+              raise SystemExit(
+                  "Invalid pull request number."
+              )
+
+          expected_repository = os.environ[
+              "EXPECTED_REPOSITORY"
+          ]
+          repository = context.get("repository")
+
+          if repository != expected_repository:
+              raise SystemExit(
+                  "PR context repository mismatch."
+              )
+
+          workflow_event_path = Path(
+              os.environ["WORKFLOW_EVENT_PATH"]
+          )
+
+          if (
+              workflow_event_path.is_symlink()
+              or not workflow_event_path.is_file()
+          ):
+              raise SystemExit(
+                  "Workflow event path must reference "
+                  "a regular file."
+              )
+
+          try:
+              workflow_event = json.loads(
+                  workflow_event_path.read_text(
+                      encoding="utf-8"
+                  )
+              )
+          except (
+              OSError,
+              UnicodeError,
+              json.JSONDecodeError,
+          ) as error:
+              raise SystemExit(
+                  "Workflow event is not valid JSON."
+              ) from error
+
+          if type(workflow_event) is not dict:
+              raise SystemExit(
+                  "Workflow event must contain "
+                  "an object."
+              )
+
+          workflow_run = workflow_event.get(
+              "workflow_run"
+          )
+
+          if type(workflow_run) is not dict:
+              raise SystemExit(
+                  "Workflow event is missing "
+                  "workflow_run."
+              )
+
+          if workflow_run.get("event") != "pull_request":
+              raise SystemExit(
+                  "Workflow run was not triggered "
+                  "by a pull request."
+              )
+
+          expected_run_id = workflow_run.get("id")
+
+          if (
+              type(expected_run_id) is not int
+              or expected_run_id <= 0
+          ):
+              raise SystemExit(
+                  "Workflow event contains an "
+                  "invalid run id."
+              )
+
+          if context.get(
+              "workflow_run_id"
+          ) != expected_run_id:
+              raise SystemExit(
+                  "PR context workflow run mismatch."
+              )
+
+          expected_head_sha = workflow_run.get(
+              "head_sha"
+          )
+
+          if (
+              not isinstance(expected_head_sha, str)
+              or not expected_head_sha.strip()
+          ):
+              raise SystemExit(
+                  "Workflow event contains an "
+                  "invalid head SHA."
+              )
+
+          expected_head_sha = (
+              expected_head_sha.strip().lower()
+          )
+
+          context_head_sha = context.get(
+              "workflow_run_head_sha"
+          )
+
+          if context_head_sha != expected_head_sha:
+              raise SystemExit(
+                  "PR context workflow SHA mismatch."
+              )
+
+          pull_requests = workflow_run.get(
+              "pull_requests"
+          )
+
+          if (
+              not isinstance(pull_requests, list)
+              or len(pull_requests) != 1
+          ):
+              raise SystemExit(
+                  "Workflow run must reference "
+                  "exactly one pull request."
+              )
+
+          trusted_pull_request = pull_requests[0]
+
+          if type(trusted_pull_request) is not dict:
+              raise SystemExit(
+                  "Workflow pull request context "
+                  "must contain an object."
+              )
+
+          trusted_pull_request_number = (
+              trusted_pull_request.get("number")
+          )
+
+          if (
+              type(trusted_pull_request_number)
+              is not int
+              or trusted_pull_request_number <= 0
+          ):
+              raise SystemExit(
+                  "Workflow event contains an "
+                  "invalid pull request number."
+              )
+
+          if (
+              pull_request_number
+              != trusted_pull_request_number
+          ):
+              raise SystemExit(
+                  "Artifact pull request number "
+                  "does not match the workflow event."
+              )
+
+          pull_request_number = (
+              trusted_pull_request_number
+          )
+
+          try:
+              report_payload = json.loads(
+                  report_path.read_text(
+                      encoding="utf-8"
+                  )
+              )
+          except (
+              OSError,
+              UnicodeError,
+              json.JSONDecodeError,
+          ) as error:
+              raise SystemExit(
+                  "Batch report is not valid JSON."
+              ) from error
+
+          if type(report_payload) is not dict:
+              raise SystemExit(
+                  "Batch report must contain an object."
+              )
+
+          output_path = os.environ[
+              "GITHUB_OUTPUT"
+          ]
+
+          with open(
+              output_path,
+              "a",
+              encoding="utf-8",
+          ) as output:
+              output.write(
+                  "pull_request_number="
+                  f"{pull_request_number}\n"
+              )
+              output.write(
+                  "report_json="
+                  f"{report_path}\n"
+              )
+
+          print(
+              "Artifact context validation passed."
+          )
+          PY
+
+      - name: Create or update sticky comment
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_API_URL: ${{ github.api_url }}
+          API_DRIFT_PULL_REQUEST_NUMBER: ${{ steps.context.outputs.pull_request_number }}
+          REPORT_JSON: ${{ steps.context.outputs.report_json }}
+        run: |
+          api-drift-pr-report \
+            --report-json "$REPORT_JSON"
