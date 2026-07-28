@@ -338,7 +338,7 @@ The write-enabled reporting workflow:
 - checks out reporter code only from the trusted `main` branch
 - does not check out or execute pull request code
 - downloads the completed analysis artifact by workflow run ID
-- validates the repository, workflow run ID, workflow SHA, and pull request number
+- validates the repository, workflow run ID, pull request head SHA, and pull request number
 - validates the versioned JSON batch report before publishing
 - creates one marker comment when no report comment exists
 - updates the same comment on later analysis runs

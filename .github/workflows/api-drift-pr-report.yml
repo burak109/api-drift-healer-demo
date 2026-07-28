@@ -208,30 +208,44 @@ jobs:
                   "PR context workflow run mismatch."
               )
 
-          expected_head_sha = workflow_run.get(
-              "head_sha"
+          # A pull_request workflow checks out GitHub's
+          # synthetic merge commit through github.sha.
+          # workflow_run.head_sha identifies the actual
+          # pull request head commit, so it must be compared
+          # with pull_request_head_sha from the artifact.
+          expected_pull_request_head_sha = (
+              workflow_run.get("head_sha")
           )
 
           if (
-              not isinstance(expected_head_sha, str)
-              or not expected_head_sha.strip()
+              not isinstance(
+                  expected_pull_request_head_sha,
+                  str,
+              )
+              or not expected_pull_request_head_sha.strip()
           ):
               raise SystemExit(
                   "Workflow event contains an "
-                  "invalid head SHA."
+                  "invalid pull request head SHA."
               )
 
-          expected_head_sha = (
-              expected_head_sha.strip().lower()
+          expected_pull_request_head_sha = (
+              expected_pull_request_head_sha
+              .strip()
+              .lower()
           )
 
-          context_head_sha = context.get(
-              "workflow_run_head_sha"
+          artifact_pull_request_head_sha = (
+              context.get("pull_request_head_sha")
           )
 
-          if context_head_sha != expected_head_sha:
+          if (
+              artifact_pull_request_head_sha
+              != expected_pull_request_head_sha
+          ):
               raise SystemExit(
-                  "PR context workflow SHA mismatch."
+                  "PR context pull request head "
+                  "SHA mismatch."
               )
 
           pull_requests = workflow_run.get(
