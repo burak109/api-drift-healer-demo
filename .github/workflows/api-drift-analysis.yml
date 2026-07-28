@@ -15,9 +15,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
+    env:
+      NO_COLOR: "1"
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+
+      - name: Capture source hashes
+        shell: bash
+        run: |
+          find examples/python_batch_v1_4 \
+            -maxdepth 1 \
+            -type f \
+            -name 'test_*.py' \
+            -print0 \
+            | sort -z \
+            | xargs -0 sha256sum \
+            > /tmp/api-drift-before.sha256
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -32,20 +47,10 @@ jobs:
           python -m pip install -e ".[pytest]"
 
       - name: Run test suite
+        id: unit_tests
+        continue-on-error: true
         run: |
           python -m unittest discover -s . -p "test*.py"
-
-      - name: Capture source hashes
-        shell: bash
-        run: |
-          find examples/python_batch_v1_4 \
-            -maxdepth 1 \
-            -type f \
-            -name 'test_*.py' \
-            -print0 \
-            | sort -z \
-            | xargs -0 sha256sum \
-            > /tmp/api-drift-before.sha256
 
       - name: Run read-only drift analysis
         id: drift_analysis
@@ -92,8 +97,20 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Enforce analyzer result
-        if: steps.drift_analysis.outcome == 'failure'
+      - name: Enforce workflow result
+        if: always()
+        shell: bash
         run: |
-          echo "API Drift Healer analysis failed."
-          exit 1
+          failed=0
+
+          if [[ "${{ steps.unit_tests.outcome }}" == "failure" ]]; then
+            echo "Unit test suite failed."
+            failed=1
+          fi
+
+          if [[ "${{ steps.drift_analysis.outcome }}" == "failure" ]]; then
+            echo "API Drift Healer analysis failed."
+            failed=1
+          fi
+
+          exit "$failed"
