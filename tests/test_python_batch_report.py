@@ -1,10 +1,13 @@
-﻿import unittest
+﻿import json
+import unittest
 from types import SimpleNamespace
 
 from api_drift_healer.models import DriftAnalysisResult
 from api_drift_healer.python_batch_report import (
     build_python_batch_report,
     format_python_batch_report,
+    format_python_batch_report_json,
+    format_python_batch_report_markdown,
 )
 
 
@@ -113,6 +116,68 @@ class PythonBatchReportTests(unittest.TestCase):
 
         for expected_line in expected_lines:
             self.assertIn(expected_line, output)
+
+
+    def test_formats_machine_readable_json_report(self) -> None:
+        report = build_python_batch_report(
+            self._validation_result()
+        )
+
+        output = format_python_batch_report_json(report)
+        payload = json.loads(output)
+
+        self.assertEqual(
+            payload,
+            {
+                "schema_version": 1,
+                "files_scanned": 3,
+                "requests_discovered": 4,
+                "requests_analyzed": 4,
+                "no_drift": 1,
+                "drifts_detected": 3,
+                "safe_patch_decisions": 1,
+                "rejected_drifts": 1,
+                "complex_drifts": 1,
+                "patches_generated": 1,
+                "patches_validated": 1,
+                "validation_failures": 0,
+                "pipeline_errors": 4,
+                "source_files_changed": False,
+            },
+        )
+
+
+
+    def test_formats_markdown_report(self) -> None:
+        report = build_python_batch_report(
+            self._validation_result()
+        )
+
+        output = format_python_batch_report_markdown(
+            report
+        )
+
+        expected_lines = (
+            "# API Drift Healer Batch Report",
+            "| Metric | Value |",
+            "| Files scanned | 3 |",
+            "| Requests discovered | 4 |",
+            "| Requests analyzed | 4 |",
+            "| No drift | 1 |",
+            "| Drift detected | 3 |",
+            "| Safe patch decisions | 1 |",
+            "| Rejected drift | 1 |",
+            "| Complex drift | 1 |",
+            "| Patches generated | 1 |",
+            "| Patches validated | 1 |",
+            "| Validation failures | 0 |",
+            "| Pipeline errors | 4 |",
+            "Source files changed: **No**",
+        )
+
+        for expected_line in expected_lines:
+            self.assertIn(expected_line, output)
+
 
 
 if __name__ == "__main__":
