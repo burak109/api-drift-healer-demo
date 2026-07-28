@@ -1,6 +1,6 @@
 # API Drift Healer
 
-**Current release: V1.4.1 - macOS Test Portability**
+**Current release: V2.0 - Read-Only CI Analysis**
 
 API Drift Healer detects request-field drift between OpenAPI contracts and API tests.
 
@@ -19,6 +19,10 @@ It currently supports:
 - multiple request analysis across files
 - targeted pytest validation in temporary files
 - aggregate batch reports
+- text, GitHub Markdown, and versioned JSON report files
+- read-only GitHub Actions analysis
+- GitHub job summaries and downloadable report artifacts
+- SHA-256 source-preservation verification in CI
 - dry-run analysis
 - Newman runtime validation
 - optional Postman environment files
@@ -41,7 +45,7 @@ The matching decision is deterministic. No LLM decides whether a patch is safe.
 
 ## Pytest / Requests Adapter
 
-V1.3 added static analysis for simple Python API tests that use the `requests` library. The single-file `pytest analyze` command remains available in V1.4.
+V1.3 added static analysis for simple Python API tests that use the `requests` library. The single-file `pytest analyze` command remains available in V2.0.
 
 Example outdated test:
 
@@ -226,6 +230,61 @@ The V1.4 safety flow is:
 ```text
 Detect. Suggest. Validate. Never overwrite.
 ```
+
+---
+
+## V2.0 - Read-Only CI Analysis
+
+V2.0 adds a read-only GitHub Actions workflow for pull requests targeting `main` and for manually triggered runs.
+
+The workflow:
+
+- runs the complete automated test suite
+- runs the Python batch analyzer
+- generates text, GitHub Markdown, and versioned JSON reports
+- publishes the Markdown report to the GitHub job summary
+- uploads all generated reports as a workflow artifact
+- verifies Python source files with SHA-256 hashes
+- uses only `contents: read` repository permission
+- fails the check when tests or drift analysis fail
+
+Run the analyzer with all report formats:
+
+```bash
+api-drift-healer pytest batch \
+  --directory examples/python_batch_v1_4 \
+  --openapi examples/python_batch_v1_4/openapi.json \
+  --timeout 30 \
+  --report-file .api-drift-healer/report.txt \
+  --report-markdown .api-drift-healer/report.md \
+  --report-json .api-drift-healer/report.json
+```
+
+Generated files:
+
+```text
+.api-drift-healer/
+├── report.txt
+├── report.md
+└── report.json
+```
+
+The JSON report includes a versioned contract:
+
+```json
+{
+  "schema_version": 1,
+  "source_files_changed": false
+}
+```
+
+The CI safety rule is:
+
+```text
+Detect. Suggest. Report. Never overwrite.
+```
+
+The V2.0 workflow does not modify API tests, push commits, open fix pull requests, or merge code automatically.
 
 ---
 
@@ -1061,10 +1120,10 @@ Run all tests:
 python -m unittest discover
 ```
 
-Current V1.4 test suite:
+Current V2.0 test suite:
 
 ```text
-234 automated tests
+239 automated tests
 ```
 
 Coverage includes:
@@ -1208,12 +1267,39 @@ V1.4 DONE 234 automated tests
 - produce combined reports across writable adapters
 - reject ambiguous cross-request patches
 
-### V2 - CI Integration
+### V2.0 - Read-Only CI Analysis
 
-- run inside GitHub Actions
-- react to failed API tests
-- generate reports or Pull Requests
-- keep human review before merge
+V2.0 DONE GitHub Actions pull-request workflow
+V2.0 DONE Manual workflow dispatch
+V2.0 DONE Text batch report files
+V2.0 DONE GitHub Markdown batch reports
+V2.0 DONE Versioned JSON batch reports
+V2.0 DONE GitHub job-summary publishing
+V2.0 DONE Workflow artifact uploads
+V2.0 DONE SHA-256 source-preservation verification
+V2.0 DONE Read-only `contents: read` permission
+V2.0 DONE 239 automated tests
+
+### V2.1 - Pull Request Reporting
+
+- publish or update one sticky analysis comment
+- summarize detected drift directly on the pull request
+- avoid duplicate bot comments
+- keep analysis read-only
+
+### V2.2 - Validated Fix Pull Requests
+
+- generate a fix branch only for deterministic safe patches
+- run targeted validation before opening a fix pull request
+- never push directly to `main`
+- require human review before merge
+- enforce: No validated PASS, no fix PR
+
+### V2.3 - Reusable GitHub Action
+
+- package the analyzer as a reusable GitHub Action
+- support external repositories
+- expose report paths and summary counts as outputs
 
 ### V3 - Local LLM Explanation Layer
 
