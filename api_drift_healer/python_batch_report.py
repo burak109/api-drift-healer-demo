@@ -262,3 +262,61 @@ def format_python_batch_report_json(
         indent=2,
         ensure_ascii=False,
     )
+
+def format_python_batch_report_markdown(
+    report: PythonBatchReport,
+) -> str:
+    """Format an aggregate report as GitHub Markdown."""
+
+    lines = (
+        "# API Drift Healer Batch Report",
+        "",
+        "| Metric | Value |",
+        "| --- | ---: |",
+        f"| Files scanned | {report.files_scanned} |",
+        (
+            "| Requests discovered | "
+            f"{report.requests_discovered} |"
+        ),
+        (
+            "| Requests analyzed | "
+            f"{report.requests_analyzed} |"
+        ),
+        f"| No drift | {report.no_drift} |",
+        (
+            "| Drift detected | "
+            f"{report.drifts_detected} |"
+        ),
+        (
+            "| Safe patch decisions | "
+            f"{report.safe_patch_decisions} |"
+        ),
+        (
+            "| Rejected drift | "
+            f"{report.rejected_drifts} |"
+        ),
+        (
+            "| Complex drift | "
+            f"{report.complex_drifts} |"
+        ),
+        (
+            "| Patches generated | "
+            f"{report.patches_generated} |"
+        ),
+        (
+            "| Patches validated | "
+            f"{report.patches_validated} |"
+        ),
+        (
+            "| Validation failures | "
+            f"{report.validation_failures} |"
+        ),
+        (
+            "| Pipeline errors | "
+            f"{report.pipeline_errors} |"
+        ),
+        "",
+        "Source files changed: **No**",
+    )
+
+    return "\n".join(lines)
