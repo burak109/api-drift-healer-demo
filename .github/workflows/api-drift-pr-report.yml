@@ -39,7 +39,7 @@ jobs:
             .
 
       - name: Download analysis artifact
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: api-drift-healer-reports
           path: ${{ runner.temp }}/api-drift-healer-reports
